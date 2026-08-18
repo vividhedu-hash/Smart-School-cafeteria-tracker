@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Face scan</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: transparent;
+      font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: #e2e8f0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 8px 12px 16px;
+    }
+    #eyebrow {
+      font-size: 0.72rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: #64748b;
+      margin-bottom: 6px;
+    }
+    #instruction {
+      font-size: 1.35rem;
+      font-weight: 650;
+      color: #f8fafc;
+      text-align: center;
+      min-height: 40px;
+      letter-spacing: -0.02em;
+    }
+    #coach {
+      font-size: 0.92rem;
+      color: #94a3b8;
+      text-align: center;
+      margin: 6px 0 14px;
+      min-height: 22px;
+    }
+    #video-wrap {
+      position: relative;
+      width: 320px;
+      height: 380px;
+      border-radius: 28px;
+      overflow: hidden;
+      background: #0b1220;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.35);
+    }
+    #video {
+      position: absolute; inset: 0;
+      width: 100%; height: 100%;
+      object-fit: cover;
+      transform: scaleX(-1);
+    }
+    #mask-canvas, #overlay, #flash {
+      position: absolute; inset: 0;
+      width: 100%; height: 100%;
+      pointer-events: none;
+    }
+    #flash { background: #fff; opacity: 0; transition: opacity 0.08s; }
+    #progress {
+      display: flex; gap: 8px; margin-top: 16px; align-items: center;
+    }
+    .step-pill {
+      width: 36px; height: 6px; border-radius: 99px; background: #1e293b;
+      transition: background 0.35s, transform 0.35s;
+    }
+    .step-pill.done { background: #34d399; }
+    .step-pill.active { background: #38bdf8; transform: scaleY(1.4); }
+    #thumbs { display: flex; gap: 8px; margin-top: 14px; min-height: 52px; }
+    .thumb {
+      width: 48px; height: 48px; border-radius: 10px; object-fit: cover;
+      border: 2px solid #34d399;
+    }
+    #status { margin-top: 10px; font-size: 0.8rem; color: #64748b; text-align: center; min-height: 18px; }
+    #complete-panel {
+      display: none; flex-direction: column; align-items: center; gap: 8px;
+      background: linear-gradient(180deg, #0f291e, #0b1220);
+      border: 1px solid #14532d; border-radius: 20px;
+      padding: 28px 24px; text-align: center; max-width: 360px;
+    }
+    #complete-panel h2 { color: #6ee7b7; font-size: 1.25rem; font-weight: 650; }
+    #complete-panel p { color: #94a3b8; font-size: 0.9rem; line-height: 1.5; }
+    #perm {
+      display: none; max-width: 360px; text-align: center; color: #94a3b8;
+      padding: 24px; line-height: 1.6;
+    }
+  </style>
+</head>
+<body>
+  <div id="eyebrow">Face scan</div>
+  <div id="instruction">Find a bit of light, then look this way</div>
+  <div id="coach">We’ll take a few calm angles — no need to rush.</div>
+
+  <div id="video-wrap">
+    <video id="video" autoplay playsinline muted></video>
+    <canvas id="mask-canvas"></canvas>
+    <canvas id="overlay"></canvas>
+    <div id="flash"></div>
+  </div>
+  <div id="perm">Allow the camera when your browser asks — we only use it for this scan.</div>
+
+  <div id="progress"></div>
+  <div id="thumbs"></div>
+  <div id="status">Starting camera…</div>
+
+  <div id="complete-panel">
+    <div style="font-size:2.2rem">✦</div>
+    <h2>That looks great</h2>
+    <p>We have enough of your face profile. Finishing up on our side…</p>
+  </div>
+
+  <!-- Handshake must run before CDN scripts: Streamlit 1.61 requires
+       type streamlit:componentReady + isStreamlitMessage + apiVersion:1. -->
+  <script>
+  window.Streamlit = {
+    _send(type, data) {
+      window.parent.postMessage({ isStreamlitMessage: true, type, ...data }, "*");
+    },
+    sendValue(value) {
+      this._send("streamlit:setComponentValue", { value });
+    },
+    setFrameHeight(h) {
+      this._send("streamlit:setFrameHeight", { height: h || document.body.scrollHeight + 8 });
+    },
+    setComponentReady() {
+      this._send("streamlit:componentReady", { apiVersion: 1 });
+    },
+  };
+  window.Streamlit.setComponentReady();
+  window.Streamlit.setFrameHeight(620);
+  // #region agent log
+  fetch('http://127.0.0.1:7910/ingest/499fb5f7-6846-4c1f-8cbb-5444ac519d10',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'e78165'},body:JSON.stringify({sessionId:'e78165',location:'face_capture/index.html',message:'handshake sent',data:{type:'streamlit:componentReady',apiVersion:1},timestamp:Date.now(),hypothesisId:'H6',runId:'post-fix'})}).catch(()=>{});
+  // #endregion
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+  <script>
+  const Streamlit = window.Streamlit;
+  window.addEventListener("message", (e) => {
+    if (e.data?.type === "streamlit:render") {
+      const name = e.data.args?.person_name;
+      if (name && currentPoseIdx === 0 && capturedImages.length === 0) {
+        document.getElementById("eyebrow").textContent = "Scanning " + name;
+      }
+    }
+  });
+
+  const POSES = [
+    { key: "front", title: "Look toward the camera",   coach: "Relax your shoulders. We’ll capture this in a moment.", check: "front" },
+    { key: "left",  title: "Gently turn a little left", coach: "Keep your eyes on the screen as you turn.", check: "left" },
+    { key: "right", title: "Now a little to the right", coach: "Same idea — slow and easy.", check: "right" },
+    { key: "up",    title: "Tip your chin up slightly", coach: "Just a small lift is enough.", check: "up" },
+    { key: "down",  title: "Softly look down",          coach: "Last one — then we’re done.", check: "down" },
+  ];
+  const HOLD_MS = 900;
+  const POST_SNAP_MS = 650;
+
+  let currentPoseIdx = 0;
+  let capturedImages = [];
+  let poseOkSince = null;
+  let snapping = false;
+  let enrollmentDone = false;
+
+  const video = document.getElementById("video");
+  const overlay = document.getElementById("overlay");
+  const maskCanvas = document.getElementById("mask-canvas");
+  const flash = document.getElementById("flash");
+  const instrEl = document.getElementById("instruction");
+  const coachEl = document.getElementById("coach");
+  const progressEl = document.getElementById("progress");
+  const thumbsEl = document.getElementById("thumbs");
+  const statusEl = document.getElementById("status");
+
+  POSES.forEach((_, i) => {
+    const d = document.createElement("div");
+    d.className = "step-pill" + (i === 0 ? " active" : "");
+    d.id = "pill-" + i;
+    progressEl.appendChild(d);
+  });
+
+  let tOvX, tOvY, tOvW, tOvH, dOvX, dOvY, dOvW, dOvH, ovalInited = false, holdPct = 0;
+  function resetOvalToCenter(w, h) {
+    tOvX = w * 0.5; tOvY = h * 0.48; tOvW = w * 0.46; tOvH = h * 0.62;
+    dOvX = tOvX; dOvY = tOvY; dOvW = tOvW; dOvH = tOvH;
+    ovalInited = true;
+  }
+  function lerp(a, b, t) { return a + (b - a) * t; }
+
+  function drawFrame(hasFace, readyPose) {
+    const W = overlay.width, H = overlay.height;
+    const ctx = overlay.getContext("2d");
+    ctx.clearRect(0, 0, W, H);
+    const speed = hasFace ? 0.16 : 0.07;
+    dOvX = lerp(dOvX, tOvX, speed);
+    dOvY = lerp(dOvY, tOvY, speed);
+    dOvW = lerp(dOvW, tOvW, speed);
+    dOvH = lerp(dOvH, tOvH, speed);
+
+    const color = readyPose ? "#34d399" : (hasFace ? "#38bdf8" : "#64748b");
+    ctx.save();
+    ctx.beginPath();
+    ctx.ellipse(dOvX, dOvY, dOvW / 2, dOvH / 2, 0, 0, Math.PI * 2);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = readyPose ? 3.5 : 2.2;
+    ctx.stroke();
+    if (holdPct > 0) {
+      ctx.beginPath();
+      ctx.ellipse(dOvX, dOvY, dOvW / 2 + 8, dOvH / 2 + 8, 0, -Math.PI / 2, -Math.PI / 2 + holdPct * Math.PI * 2);
+      ctx.strokeStyle = "#34d399";
+      ctx.lineWidth = 4;
+      ctx.lineCap = "round";
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    const mctx = maskCanvas.getContext("2d");
+    mctx.clearRect(0, 0, W, H);
+    mctx.fillStyle = "rgba(2,6,23,0.58)";
+    mctx.fillRect(0, 0, W, H);
+    mctx.globalCompositeOperation = "destination-out";
+    mctx.beginPath();
+    mctx.ellipse(dOvX, dOvY, dOvW / 2 + 4, dOvH / 2 + 4, 0, 0, Math.PI * 2);
+    mctx.fill();
+    mctx.globalCompositeOperation = "source-over";
+  }
+
+  function poseFromLandmarks(lms) {
+    const nose = lms[1], leftEye = lms[33], rightEye = lms[263], chin = lms[152];
+    if (!nose || !leftEye || !rightEye || !chin) return { yaw: 0, pitch: 0 };
+    const midX = (leftEye.x + rightEye.x) / 2;
+    const midY = (leftEye.y + rightEye.y) / 2;
+    const yaw = nose.x - midX;
+    const pitch = nose.y - midY;
+    return { yaw, pitch };
+  }
+
+  function poseMatches(check, yaw, pitch) {
+    const ay = Math.abs(yaw), ap = Math.abs(pitch);
+    if (check === "front") return ay < 0.045 && ap < 0.055;
+    if (check === "left")  return yaw > 0.055;
+    if (check === "right") return yaw < -0.055;
+    if (check === "up")    return pitch < -0.04;
+    if (check === "down")  return pitch > 0.05;
+    return true;
+  }
+
+  function coachFor(check, yaw, pitch, hasFace) {
+    if (!hasFace) return "Bring your face into the glow — we’ve got you.";
+    const ok = poseMatches(check, yaw, pitch);
+    if (ok) return "Perfect — hold still for a beat.";
+    if (check === "front") {
+      if (Math.abs(yaw) >= 0.045) return "Come back to center — looking this way is enough.";
+      return "Level your chin just a little.";
+    }
+    if (check === "left")  return "Keep turning left, slowly — you don’t need much.";
+    if (check === "right") return "Ease toward the right. We’ll catch it.";
+    if (check === "up")    return "A tiny chin lift is all we need.";
+    return "Glance down just a touch.";
+  }
+
+  function doSnap() {
+    if (snapping || enrollmentDone) return;
+    snapping = true;
+    poseOkSince = null;
+    holdPct = 0;
+    flash.style.opacity = "1";
+    setTimeout(() => { flash.style.opacity = "0"; }, 110);
+
+    const snapW = video.videoWidth || 340;
+    const snapH = video.videoHeight || 380;
+    const sc = document.createElement("canvas");
+    sc.width = snapW; sc.height = snapH;
+    const sctx = sc.getContext("2d");
+    sctx.translate(snapW, 0);
+    sctx.scale(-1, 1);
+    sctx.drawImage(video, 0, 0, snapW, snapH);
+    const dataUrl = sc.toDataURL("image/jpeg", 0.92);
+
+    const img = document.createElement("img");
+    img.className = "thumb";
+    img.src = dataUrl;
+    thumbsEl.appendChild(img);
+    capturedImages.push({ pose: POSES[currentPoseIdx].key, data: dataUrl });
+
+    const donePill = document.getElementById("pill-" + currentPoseIdx);
+    if (donePill) donePill.className = "step-pill done";
+    statusEl.textContent = (currentPoseIdx + 1) + " of " + POSES.length + " saved";
+    currentPoseIdx++;
+
+    if (currentPoseIdx >= POSES.length) {
+      enrollmentDone = true;
+      setTimeout(() => {
+        instrEl.textContent = "All set";
+        coachEl.textContent = "Thanks — that was plenty.";
+        statusEl.textContent = "";
+        Streamlit.sendValue({ status: "complete", captures: capturedImages });
+        document.getElementById("video-wrap").style.display = "none";
+        document.getElementById("complete-panel").style.display = "flex";
+        try { video.srcObject && video.srcObject.getTracks().forEach(t => t.stop()); } catch (e) {}
+        Streamlit.setFrameHeight(420);
+      }, POST_SNAP_MS);
+      return;
+    }
+
+    setTimeout(() => {
+      const next = document.getElementById("pill-" + currentPoseIdx);
+      if (next) next.className = "step-pill active";
+      instrEl.textContent = POSES[currentPoseIdx].title;
+      coachEl.textContent = POSES[currentPoseIdx].coach;
+      snapping = false;
+    }, POST_SNAP_MS);
+  }
+
+  async function init() {
+    document.getElementById("perm").style.display = "block";
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 720 } },
+      });
+    } catch (err) {
+      document.getElementById("perm").style.display = "none";
+      instrEl.textContent = "Camera needs a moment";
+      coachEl.textContent = "Allow camera access in the browser prompt, then refresh this page.";
+      statusEl.textContent = "";
+      return;
+    }
+    document.getElementById("perm").style.display = "none";
+    video.srcObject = stream;
+    await new Promise(r => { video.onloadedmetadata = r; });
+    await video.play();
+
+    const W = video.videoWidth || 340;
+    const H = video.videoHeight || 380;
+    overlay.width = W; overlay.height = H;
+    maskCanvas.width = W; maskCanvas.height = H;
+    const wrap = document.getElementById("video-wrap");
+    wrap.style.width = Math.min(W, 320) + "px";
+    wrap.style.height = Math.min(H * (320 / W), 400) + "px";
+    resetOvalToCenter(W, H);
+    instrEl.textContent = POSES[0].title;
+    coachEl.textContent = POSES[0].coach;
+    statusEl.textContent = "When the ring fills, we move on.";
+
+    const faceMesh = new FaceMesh({
+      locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${f}`,
+    });
+    faceMesh.setOptions({
+      maxNumFaces: 1,
+      refineLandmarks: false,
+      minDetectionConfidence: 0.5,
+      minTrackingConfidence: 0.4,
+    });
+    faceMesh.onResults(onResults);
+    const cam = new Camera(video, {
+      onFrame: async () => { await faceMesh.send({ image: video }); },
+      width: W, height: H,
+    });
+    cam.start();
+  }
+
+  function onResults(results) {
+    if (enrollmentDone || snapping) { drawFrame(false, false); return; }
+    const W = overlay.width, H = overlay.height;
+    const lms = results.multiFaceLandmarks && results.multiFaceLandmarks[0];
+    const pose = POSES[currentPoseIdx];
+
+    if (!lms || !lms.length) {
+      poseOkSince = null; holdPct = 0;
+      resetOvalToCenter(W, H);
+      drawFrame(false, false);
+      coachEl.textContent = coachFor(pose.check, 0, 0, false);
+      return;
+    }
+
+    let minX = 1, maxX = 0, minY = 1, maxY = 0;
+    for (const lm of lms) {
+      if (lm.x < minX) minX = lm.x;
+      if (lm.x > maxX) maxX = lm.x;
+      if (lm.y < minY) minY = lm.y;
+      if (lm.y > maxY) maxY = lm.y;
+    }
+    const pad = 0.04;
+    const fCX = W * (1 - (minX + maxX) / 2);
+    const fCY = H * (minY + maxY) / 2;
+    const fW = W * (maxX - minX + pad * 2) * 1.35;
+    const fH = H * (maxY - minY + pad * 2) * 1.55;
+    tOvX = Math.max(fW / 2, Math.min(W - fW / 2, fCX));
+    tOvY = Math.max(fH / 2, Math.min(H - fH / 2, fCY));
+    tOvW = Math.min(fW, W * 0.85);
+    tOvH = Math.min(fH, H * 0.85);
+
+    const { yaw, pitch } = poseFromLandmarks(lms);
+    const ready = poseMatches(pose.check, yaw, pitch);
+    coachEl.textContent = coachFor(pose.check, yaw, pitch, true);
+    drawFrame(true, ready);
+
+    const now = performance.now();
+    if (!ready) {
+      poseOkSince = null;
+      holdPct = 0;
+      return;
+    }
+    if (!poseOkSince) poseOkSince = now;
+    const held = now - poseOkSince;
+    holdPct = Math.min(held / HOLD_MS, 1);
+    if (holdPct < 1) return;
+    doSnap();
+  }
+
+  init();
+  </script>
+</body>
+</html>

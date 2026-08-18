@@ -1,0 +1,79 @@
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Environment variables
+.env
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+logs/*.log
+logs/*.jsonl
+
+# Database (keep schema, not data)
+database/*.db
+database/*.db-shm
+database/*.db-wal
+
+# Models — keep directory structure, not large weights
+models/face/**/*.onnx
+models/face/**/*.bin
+models/plate/**/*.pt
+models/waste/**/*.pt
+
+# Data — keep directory structure, not images/captures
+data/captures/**/*.jpg
+data/captures/**/*.png
+data/review_queue/**/*.jpg
+data/review_queue/**/*.png
+data/frames/
+
+# Keep enrollment structure but not actual images
+data/enrollment/**/*.jpg
+data/enrollment/**/*.png
+data/enrollment/**/*.npy
+
+# Keep dataset structure but not images
+data/datasets/**/*.jpg
+data/datasets/**/*.png
+data/exports/**
+
+# Runtime state
+data/runtime_state.json
+data/commands.json
+data/heartbeat
+data/engine.pid
+data/.operator_pin
+data/.embedding_key
+data/.engine_token
+
+# pytest
+.pytest_cache/
+htmlcov/
+.coverage
+coverage.xml
+
+# Ultralytics runs
+runs/
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db

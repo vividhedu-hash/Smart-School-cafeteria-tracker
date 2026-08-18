@@ -1,0 +1,107 @@
+application:
+  name: "Smart Cafeteria Waste Tracker"
+  debug: true
+  log_level: "INFO"        # DEBUG, INFO, WARNING, ERROR
+  runtime_state_path: "data/runtime_state.json"
+  commands_path: "data/commands.json"
+  api_host: "127.0.0.1"
+  api_port: 8765
+
+camera:
+  mode: webcam              # webcam | rtsp
+  source: 0                 # int for webcam index, string for RTSP URL
+  width: 1280               # 720p — enough for face recognition, 50% fewer pixels than 1080p
+  height: 720
+  fps: 30
+  buffer_size: 3            # tighter buffer = lower latency
+  reconnect_delay_seconds: 3.0
+  reconnect_max_attempts: 10
+  # For two-camera future deployment:
+  # cameras:
+  #   plate:
+  #     source: 0
+  #   face:
+  #     source: 1
+
+roi:
+  plate:
+    x1: 0.05
+    y1: 0.40
+    x2: 0.95
+    y2: 1.00
+  face:
+    x1: 0.05
+    y1: 0.00
+    x2: 0.95
+    y2: 0.55
+
+models:
+  plate:
+    weights: "models/plate/best.pt"
+    confidence: 0.55
+    iou: 0.50
+    classes: null           # null = all classes; [0] = class 0 only
+    # HONESTY GATE: if true and no trained plate model exists, fall back to a
+    # pretrained COCO model (detects bowls/cups/plates-ish objects). This is a
+    # DEMO PROXY, not real plate detection — it is clearly labelled in the
+    # dashboard and logs. Default false: missing model = pipeline disabled.
+    allow_coco_fallback: false
+  waste:
+    weights: "models/waste/best.pt"
+    confidence: 0.55
+    iou: 0.50
+    # Waste classification label map (auto-detected from training)
+    classes:
+      0: "EMPTY"
+      1: "LOW_WASTE"
+      2: "MEDIUM_WASTE"
+      3: "HIGH_WASTE"
+
+recognition:
+  model_pack: "buffalo_s"   # fast ArcFace model — same embedding quality, 3x faster than buffalo_l
+  similarity_threshold: 0.52  # ArcFace cosine; 0.40 was too permissive for buffalo
+  frames_to_vote: 2          # vote over 2 frames only — reduces latency massively
+  minimum_face_size: 24      # lock/draw as soon as a walking face is visible
+  identify_face_size: 48     # run identity match once the face is large enough
+  max_event_duration_seconds: 4.0
+  embedding_dir: "data/enrollment"
+  det_size: [480, 480]       # walk-past at 1280x720; 320 missed smaller moving faces
+  det_thresh: 0.42
+  infer_max_width: 1280      # do not downscale 720p before InsightFace
+  bbox_hold_frames: 12       # persist lock ~0.4s if a walking frame is missed
+
+event:
+  minimum_plate_presence_seconds: 0.20
+  cooldown_seconds: 2.0
+  timeout_seconds: 4.0
+  best_frame_window: 10     # choose best from last N buffered frames
+
+storage:
+  database: "database/cafeteria.db"
+  captures: "data/captures"
+  review_queue: "data/review_queue"
+  datasets: "data/datasets"
+  models: "models"
+  frames: "data/frames"
+  exports: "data/exports"
+
+training:
+  default_base_model: "yolov8n-cls.pt"   # for waste classification
+  plate_base_model: "yolov8n.pt"          # for plate detection
+  default_epochs: 50
+  default_image_size: 640
+  default_batch: 16
+  train_ratio: 0.70
+  val_ratio: 0.20
+  test_ratio: 0.10
+  random_seed: 42
+  output_base: "models"
+
+monitoring:
+  state_write_interval_seconds: 0.1  # write every 100ms so dashboard updates in near real-time
+  metrics_history_size: 300          # keep last N latency samples
+
+inference:
+  frame_skip: 2             # process every 2nd frame for plate detection — CPU relief
+  debug_window: false       # headless mode for web dashboard (no desktop popup needed)
+
