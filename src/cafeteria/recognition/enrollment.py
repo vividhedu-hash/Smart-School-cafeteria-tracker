@@ -78,14 +78,7 @@ class EnrollmentManager:
         self._face_engine = face_engine
         self._min_face_size = min_face_size
         self._audit_path = Path(audit_path) if audit_path else None
-        # #region agent log
-        try:
-            import json as _json, time as _time
-            with open("/Users/indian/Downloads/Adaptive signal project/India Lens /school project/smart-cafeteria-waste/.cursor/debug-e78165.log", "a") as _f:
-                _f.write(_json.dumps({"sessionId":"e78165","timestamp":int(_time.time()*1000),"location":"enrollment.py:__init__","message":"new EnrollmentManager.__init__ entered","data":{"has_audit_path": audit_path is not None},"hypothesisId":"B","runId":"pre-fix"})+"\n")
-        except Exception:
-            pass
-        # #endregion
+        # [AI-CoLab: Cursor] audit_path is optional so older callers (and tests) keep working.
 
     # ──────────────────────────────────────────────────────────────────────
     # Directory helpers

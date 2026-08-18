@@ -139,6 +139,8 @@ with st.sidebar:
     st.markdown("---")
 
     if engine_alive:
+        # [AI-CoLab: Cursor] AppSettings already defines api_host/api_port. getattr
+        # is only a belt-and-suspenders guard if an older config object is loaded.
         _api_h = getattr(cfg.application, "api_host", None)
         _api_p = getattr(cfg.application, "api_port", None)
         state_data = fetch_state(

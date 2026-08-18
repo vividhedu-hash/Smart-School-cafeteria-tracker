@@ -2,7 +2,7 @@
 Page 1 — Live Monitor
 
 Real-time camera feed + always-on face recognition panel.
-Polls runtime_state.json every 300 ms via st.rerun().
+Polls runtime_state.json every POLL_MS via st.rerun().
 """
 from __future__ import annotations
 
@@ -39,7 +39,10 @@ cfg = load_settings(config_path=_project_root / "configs" / "config.yaml")
 write_heartbeat()
 
 # ── Poll interval ─────────────────────────────────────────────────────────────
-POLL_MS = 400  # ~2.5 Hz so the face lock feels live without freezing Streamlit
+# [AI-CoLab: Cursor] 400 ms (~2.5 Hz), not 100 ms. Engine writes state every 100 ms
+# (config monitoring.state_write_interval_seconds). Dashboard reruns are heavier;
+# 100 ms Streamlit polling freezes the UI. Do not "fix" this back to 100.
+POLL_MS = 400
 
 
 # ── Custom CSS ────────────────────────────────────────────────────────────────
@@ -228,22 +231,6 @@ with right:
     st.subheader("🔍 Who's Here?")
 
     live = face_match_as_dict(state_data.get("live_face_match"))
-    # #region agent log
-    try:
-        import json as _json
-        _live_key = (
-            live is None,
-            bool(live and live.get("approaching")),
-            bool(live and live.get("is_known")),
-            bool(engine_is_alive()),
-        )
-        if st.session_state.get("_dbg_live_key") != _live_key:
-            st.session_state["_dbg_live_key"] = _live_key
-            with open("/Users/indian/Downloads/Adaptive signal project/India Lens /school project/smart-cafeteria-waste/.cursor/debug-e78165.log", "a") as _f:
-                _f.write(_json.dumps({"sessionId":"e78165","timestamp":int(time.time()*1000),"location":"1_Live_Monitor.py","message":"who-panel","data":{"none": live is None,"approaching": bool(live and live.get("approaching")),"is_known": bool(live and live.get("is_known")),"sim": float((live or {}).get("similarity") or 0),"engine": bool(engine_is_alive())},"hypothesisId":"H4","runId":"pre-fix"})+"\n")
-    except Exception:
-        pass
-    # #endregion
 
     if live is None:
         st.markdown("""

@@ -262,26 +262,7 @@ def run_engine() -> None:
         identify_min = int(getattr(cfg.recognition, "identify_face_size", 48) or 48)
         max_hold = int(getattr(cfg.recognition, "bbox_hold_frames", 12) or 12)
         infer_max = int(getattr(cfg.recognition, "infer_max_width", 1280) or 1280)
-        # #region agent log
-        _face_dbg_n = [0]
-        _face_dbg_key = [None]
-        def _face_dbg(msg, data, hid):
-            try:
-                import json as _json
-                with open("/Users/indian/Downloads/Adaptive signal project/India Lens /school project/smart-cafeteria-waste/.cursor/debug-e78165.log", "a") as _f:
-                    _f.write(_json.dumps({"sessionId":"e78165","timestamp":int(time.time()*1000),"location":"main.py:_face_inference_worker","message":msg,"data":data,"hypothesisId":hid,"runId":"pre-fix"})+"\n")
-            except Exception:
-                pass
-        _face_dbg("worker start", {
-            "lock_min": lock_min,
-            "identify_min": identify_min,
-            "max_hold": max_hold,
-            "infer_max": infer_max,
-            "det_size": list(getattr(cfg.recognition, "det_size", []) or []),
-            "enrolled": int(getattr(matcher, "enrolled_count", 0) or 0),
-            "threshold": float(cfg.recognition.similarity_threshold),
-        }, "H1")
-        # #endregion
+        # [AI-CoLab: Cursor] Face worker is a hot path — no file/NDJSON debug probes here.
         while not _face_thread_stop.is_set():
             with _face_frame_lock:
                 img = _face_inference_frame
@@ -370,31 +351,7 @@ def run_engine() -> None:
                 if metrics:
                     metrics.set_live_face_match(result)
                     metrics.update_latencies(face_ms=face_ms)
-                # #region agent log
-                _face_dbg_n[0] += 1
-                n_faces = len(faces) if faces else 0
-                fw_fh = face_size_px((result or {}).get("bbox")) if result else (0, 0)
-                skipped_id = bool(result) and bool(result.get("approaching")) and not bool(result.get("is_known"))
-                key = (n_faces, bool(result), skipped_id, bool(result and result.get("is_known")))
-                if _face_dbg_n[0] <= 2 or key != _face_dbg_key[0] or _face_dbg_n[0] % 20 == 0:
-                    _face_dbg_key[0] = key
-                    _face_dbg("infer", {
-                        "n": _face_dbg_n[0],
-                        "n_faces": n_faces,
-                        "fw": fw_fh[0],
-                        "fh": fw_fh[1],
-                        "identify_min": identify_min,
-                        "approaching": bool(result and result.get("approaching")),
-                        "is_known": bool(result and result.get("is_known")),
-                        "sim": float((result or {}).get("similarity") or 0),
-                        "id_skipped": skipped_id,
-                        "ms": round(face_ms, 1),
-                    }, "H2")
-                # #endregion
             except Exception as exc:
-                # #region agent log
-                _face_dbg("worker error", {"err": type(exc).__name__, "msg": str(exc)[:200]}, "H3")
-                # #endregion
                 logger.debug("Face thread error: %s", exc)
 
     _face_thread: threading.Thread | None = None

@@ -129,9 +129,6 @@
   };
   window.Streamlit.setComponentReady();
   window.Streamlit.setFrameHeight(620);
-  // #region agent log
-  fetch('http://127.0.0.1:7910/ingest/499fb5f7-6846-4c1f-8cbb-5444ac519d10',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'e78165'},body:JSON.stringify({sessionId:'e78165',location:'face_capture/index.html',message:'handshake sent',data:{type:'streamlit:componentReady',apiVersion:1},timestamp:Date.now(),hypothesisId:'H6',runId:'post-fix'})}).catch(()=>{});
-  // #endregion
   </script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>

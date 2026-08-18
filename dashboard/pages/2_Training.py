@@ -86,26 +86,15 @@ from cafeteria.utils.image_quality import laplacian_variance, brightness_ok
 from engine_ctl import engine_is_alive, stop_engine
 from empty_states import empty_state_html
 
-# #region agent log
 import inspect as _inspect
-import json as _json
-import time as _time
-def _dbg(msg, data, hid):
-    try:
-        with open("/Users/indian/Downloads/Adaptive signal project/India Lens /school project/smart-cafeteria-waste/.cursor/debug-e78165.log", "a") as _f:
-            _f.write(_json.dumps({"sessionId":"e78165","timestamp":int(_time.time()*1000),"location":"2_Training.py","message":msg,"data":data,"hypothesisId":hid,"runId":"pre-fix"})+"\n")
-    except Exception:
-        pass
-_sig = str(_inspect.signature(EnrollmentManager.__init__))
-_file = _inspect.getfile(EnrollmentManager)
-_dbg("EnrollmentManager import", {"file":_file,"signature":_sig,"module":getattr(EnrollmentManager,"__module__",None),"has_audit":"audit_path" in _sig}, "A")
 
+# [AI-CoLab: Cursor] Drop kwargs the target constructor does not accept. Needed
+# because FaceEngine/EnrollmentManager signatures have drifted during collab.
 def _construct(cls, **wanted):
     params = _inspect.signature(cls.__init__).parameters
     if any(p.kind == _inspect.Parameter.VAR_KEYWORD for p in params.values()):
         return cls(**wanted)
     return cls(**{k: v for k, v in wanted.items() if k in params and k != "self"})
-# #endregion
 
 cfg      = load_settings(config_path=_project_root / "configs" / "config.yaml")
 registry = ModelRegistry(cfg.project_root / "models" / "registry.json")
@@ -385,9 +374,6 @@ with tab_enroll:
             "and we’ll move on by ourselves when each one looks good — about 15 seconds in total."
         )
 
-        # #region agent log
-        _dbg("face_capture_component call", {"pid": pid, "has_name": bool(pname)}, "H6")
-        # #endregion
         result = face_capture_component(
             person_name=pname,
             key=f"fc_scan_{pid}",
