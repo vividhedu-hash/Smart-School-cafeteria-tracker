@@ -146,7 +146,7 @@ _SESS_LOCK = threading.Lock()
 def start_enroll_camera(session_key: str, source: int = 0) -> EnrollCamera:
     with _SESS_LOCK:
         cam = _SESSIONS.get(session_key)
-        if cam is None or cam.error or cam.done:
+        if cam is None or cam.error:
             if cam is not None:
                 cam.stop()
             cam = EnrollCamera(source=source)
