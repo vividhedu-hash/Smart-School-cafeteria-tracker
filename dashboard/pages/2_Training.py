@@ -156,7 +156,9 @@ status_strip(
     fetch_state(cfg.project_root / cfg.application.runtime_state_path, **_API)
     if _ENGINE_ALIVE else {},
     engine_alive=_ENGINE_ALIVE,
-    enrolled=len(enrollment_mgr.list_enrolled()),
+    enrolled=sum(
+        1 for pid in enrollment_mgr.list_enrolled() if enrollment_mgr.has_embedding(pid)
+    ),
 )
 
 
