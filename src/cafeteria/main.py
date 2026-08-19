@@ -64,6 +64,11 @@ from cafeteria.utils.timing import FPSCounter
 logger = get_logger("main")
 _shutdown = False
 
+# Clean (un-annotated) frames published for enrollment and dataset capture.
+# macOS hands one process exclusive camera access, so the dashboard borrows
+# these instead of opening a second capture device.
+RAW_FRAME_INTERVAL_SECONDS = 0.2
+
 
 def handle_signal(sig, frame):
     global _shutdown
@@ -234,6 +239,7 @@ def run_engine() -> None:
     frame_count = 0
     last_registry_check = 0.0
     last_embedding_reload = 0.0
+    last_raw_write = 0.0
     current_plate_det = None
     current_waste_result = None
     current_face_match = None
@@ -448,6 +454,7 @@ def run_engine() -> None:
             port=int(cfg.application.api_port),
             get_state=lambda: metrics.snapshot(_runtime_extra()),
             frame_path=frames_dir / "latest.jpg",
+            raw_frame_path=frames_dir / "latest_raw.jpg",
             heartbeat_path=_HEARTBEAT_FILE,
             commands_path=project_root / cfg.application.commands_path,
             on_command=lambda cmd: _handle_command(
@@ -477,8 +484,13 @@ def run_engine() -> None:
             fps = fps_counter.tick()
             metrics.update_fps(fps)
 
-            # ── Hot-swap check (every 5 s) ───────────────────────────────
             now = time.time()
+
+            if now - last_raw_write > RAW_FRAME_INTERVAL_SECONDS:
+                last_raw_write = now
+                _write_raw_frame(frame.image, frames_dir)
+
+            # ── Hot-swap check (every 5 s) ───────────────────────────────
             if now - last_registry_check > 5.0:
                 last_registry_check = now
                 _check_model_hotswap(registry, plate_detector, waste_detector, project_root)
@@ -611,6 +623,17 @@ def run_engine() -> None:
         logger.info("Engine stopped.")
 
 
+
+
+def _write_raw_frame(image, frames_dir) -> None:
+    # [AI-CoLab: Verified by Antigravity] Frame borrowing publisher for single-camera macOS sharing
+    path = frames_dir / "latest_raw.jpg"
+    tmp = frames_dir / "latest_raw.tmp.jpg"
+    try:
+        if cv2.imwrite(str(tmp), image, [cv2.IMWRITE_JPEG_QUALITY, 85]):
+            tmp.replace(path)
+    except Exception:
+        pass
 
 
 def _write_debug_frame(image, frames_dir, debug, state, fps, plate_det,
