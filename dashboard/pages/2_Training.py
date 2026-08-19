@@ -364,7 +364,7 @@ with tab_enroll:
                 </div>""", unsafe_allow_html=True)
 
     # ─────────────────────────────────────────────────────────────────────────
-    # STEP 2 — Enterprise Guided Capture (MediaPipe FaceMesh component)
+    # STEP 2 — OpenCV webcam capture (same camera as Live Monitor)
     # ─────────────────────────────────────────────────────────────────────────
     elif st.session_state.enroll_step == "capture":
         pid   = st.session_state.enroll_pid
@@ -380,35 +380,34 @@ with tab_enroll:
 
         cam_src = cfg.camera.source if isinstance(cfg.camera.source, int) else 0
         session_key = f"enroll_{pid}"
-        cam = start_enroll_camera(session_key, source=int(cam_src))
-        jpeg, hint, n_caps, cam_done, cam_err = cam.snapshot()
 
-        if cam_err:
-            st.warning(cam_err)
-        else:
+        @st.fragment(run_every=0.15)
+        def _enroll_preview():
+            cam = start_enroll_camera(session_key, source=int(cam_src))
+            jpeg, hint, n_caps, cam_done, cam_err = cam.snapshot()
+            if cam_err:
+                st.warning(cam_err)
+                return
             st.markdown(f"**{hint}**")
             if jpeg:
                 st.image(jpeg, use_container_width=False, width=420)
             else:
                 st.info("Opening the webcam…")
             st.progress(min(n_caps / TARGET_FRAMES, 1.0), text=f"{n_caps} / {TARGET_FRAMES}")
+            if cam_done and not st.session_state.get("enroll_batch_saved"):
+                saved = 0
+                for img in cam.take_captures():
+                    enrollment_mgr.save_image(pid, img, pose="front")
+                    st.session_state.enroll_snaps.setdefault("front", []).append(img.copy())
+                    saved += 1
+                stop_enroll_camera(session_key)
+                st.session_state.enroll_batch_saved = True
+                if saved >= 1:
+                    st.session_state.enroll_embed_status = "pending"
+                    st.session_state.enroll_step = "embed"
+                    st.rerun()
 
-        if cam_done and not st.session_state.get("enroll_batch_saved"):
-            saved = 0
-            for img in cam.take_captures():
-                enrollment_mgr.save_image(pid, img, pose="front")
-                st.session_state.enroll_snaps.setdefault("front", []).append(img.copy())
-                saved += 1
-            stop_enroll_camera(session_key)
-            st.session_state.enroll_batch_saved = True
-            if saved >= 1:
-                st.session_state.enroll_embed_status = "pending"
-                st.session_state.enroll_step = "embed"
-                st.rerun()
-
-        if not cam_done and not cam_err:
-            time.sleep(0.12)
-            st.rerun()
+        _enroll_preview()
 
         st.markdown("---")
         st.markdown("### Camera blocked? Upload photos instead")
@@ -423,6 +422,7 @@ with tab_enroll:
             if not uploads:
                 st.info("Add at least one photo first.")
             else:
+                stop_enroll_camera(session_key)
                 poses = ["front", "left", "right", "up", "down"]
                 saved = 0
                 for i, uf in enumerate(uploads):
