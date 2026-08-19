@@ -13,38 +13,38 @@
       display: flex;
       flex-direction: column;
       align-items: center;
-      padding: 8px 12px 16px;
+      padding: 4px 8px 12px;
     }
     #eyebrow {
-      font-size: 0.72rem;
-      letter-spacing: 0.12em;
+      font-size: 0.7rem;
+      letter-spacing: 0.16em;
       text-transform: uppercase;
       color: #64748b;
-      margin-bottom: 6px;
+      margin-bottom: 4px;
     }
     #instruction {
-      font-size: 1.35rem;
-      font-weight: 650;
+      font-size: 1.45rem;
+      font-weight: 700;
       color: #f8fafc;
       text-align: center;
-      min-height: 40px;
-      letter-spacing: -0.02em;
+      min-height: 34px;
+      letter-spacing: -0.03em;
     }
     #coach {
       font-size: 0.92rem;
       color: #94a3b8;
       text-align: center;
-      margin: 6px 0 14px;
-      min-height: 22px;
+      margin: 4px 0 12px;
+      min-height: 20px;
     }
     #video-wrap {
       position: relative;
-      width: 320px;
-      height: 380px;
-      border-radius: 28px;
+      width: 340px;
+      height: 440px;
+      border-radius: 32px;
       overflow: hidden;
-      background: #0b1220;
-      box-shadow: 0 12px 40px rgba(0,0,0,0.35);
+      background: #070b14;
+      box-shadow: 0 18px 50px rgba(0,0,0,0.4);
     }
     #video {
       position: absolute; inset: 0;
@@ -57,29 +57,23 @@
       width: 100%; height: 100%;
       pointer-events: none;
     }
-    #flash { background: #fff; opacity: 0; transition: opacity 0.08s; }
-    #progress {
-      display: flex; gap: 8px; margin-top: 16px; align-items: center;
+    #flash { background: #fff; opacity: 0; transition: opacity 0.07s; }
+    #thumbs {
+      display: flex; gap: 6px; margin-top: 12px; min-height: 44px;
+      justify-content: center; flex-wrap: wrap; max-width: 340px;
     }
-    .step-pill {
-      width: 36px; height: 6px; border-radius: 99px; background: #1e293b;
-      transition: background 0.35s, transform 0.35s;
-    }
-    .step-pill.done { background: #34d399; }
-    .step-pill.active { background: #38bdf8; transform: scaleY(1.4); }
-    #thumbs { display: flex; gap: 8px; margin-top: 14px; min-height: 52px; }
     .thumb {
-      width: 48px; height: 48px; border-radius: 10px; object-fit: cover;
+      width: 40px; height: 40px; border-radius: 8px; object-fit: cover;
       border: 2px solid #34d399;
     }
-    #status { margin-top: 10px; font-size: 0.8rem; color: #64748b; text-align: center; min-height: 18px; }
+    #status { margin-top: 8px; font-size: 0.8rem; color: #64748b; text-align: center; min-height: 18px; }
     #complete-panel {
       display: none; flex-direction: column; align-items: center; gap: 8px;
-      background: linear-gradient(180deg, #0f291e, #0b1220);
+      background: #0b1220;
       border: 1px solid #14532d; border-radius: 20px;
       padding: 28px 24px; text-align: center; max-width: 360px;
     }
-    #complete-panel h2 { color: #6ee7b7; font-size: 1.25rem; font-weight: 650; }
+    #complete-panel h2 { color: #6ee7b7; font-size: 1.3rem; font-weight: 700; }
     #complete-panel p { color: #94a3b8; font-size: 0.9rem; line-height: 1.5; }
     #perm {
       display: none; max-width: 380px; text-align: left; color: #cbd5e1;
@@ -90,24 +84,16 @@
     #perm ol { margin: 8px 0 12px 18px; color: #94a3b8; }
     #perm li { margin: 4px 0; }
     #retry-cam {
-      pointer-events: auto;
-      cursor: pointer;
-      border: 0;
-      border-radius: 10px;
-      padding: 10px 16px;
-      font-weight: 650;
-      font-size: 0.9rem;
-      background: #38bdf8;
-      color: #0f172a;
-      width: 100%;
+      pointer-events: auto; cursor: pointer; border: 0; border-radius: 10px;
+      padding: 10px 16px; font-weight: 650; font-size: 0.9rem;
+      background: #38bdf8; color: #0f172a; width: 100%;
     }
-    #retry-cam:hover { background: #7dd3fc; }
   </style>
 </head>
 <body>
   <div id="eyebrow">Face scan</div>
-  <div id="instruction">Find a bit of light, then look this way</div>
-  <div id="coach">We’ll take a few calm angles — no need to rush.</div>
+  <div id="instruction">Fit your face in the oval</div>
+  <div id="coach">Look at the camera. We’ll enroll you in a few seconds.</div>
 
   <div id="video-wrap">
     <video id="video" autoplay playsinline muted></video>
@@ -115,66 +101,40 @@
     <canvas id="overlay"></canvas>
     <div id="flash"></div>
   </div>
-  <div id="perm">Allow the camera when your browser asks — we only use it for this scan.</div>
-
-  <div id="progress"></div>
+  <div id="perm"></div>
   <div id="thumbs"></div>
   <div id="status">Starting camera…</div>
 
   <div id="complete-panel">
-    <div style="font-size:2.2rem">✦</div>
-    <h2>That looks great</h2>
-    <p>We have enough of your face profile. Finishing up on our side…</p>
+    <h2>You’re in</h2>
+    <p>Building your face profile now — this usually takes a couple of seconds.</p>
   </div>
 
-  <!-- Handshake must run before CDN scripts: Streamlit 1.61 requires
-       type streamlit:componentReady + isStreamlitMessage + apiVersion:1. -->
   <script>
   window.Streamlit = {
     _send(type, data) {
       window.parent.postMessage({ isStreamlitMessage: true, type, ...data }, "*");
     },
-    sendValue(value) {
-      this._send("streamlit:setComponentValue", { value });
-    },
-    setFrameHeight(h) {
-      this._send("streamlit:setFrameHeight", { height: h || document.body.scrollHeight + 8 });
-    },
-    setComponentReady() {
-      this._send("streamlit:componentReady", { apiVersion: 1 });
-    },
+    sendValue(value) { this._send("streamlit:setComponentValue", { value }); },
+    setFrameHeight(h) { this._send("streamlit:setFrameHeight", { height: h || document.body.scrollHeight + 8 }); },
+    setComponentReady() { this._send("streamlit:componentReady", { apiVersion: 1 }); },
   };
   window.Streamlit.setComponentReady();
-  window.Streamlit.setFrameHeight(620);
+  window.Streamlit.setFrameHeight(680);
   </script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/face_detection.js" crossorigin="anonymous"></script>
   <script>
   const Streamlit = window.Streamlit;
-  window.addEventListener("message", (e) => {
-    if (e.data?.type === "streamlit:render") {
-      const name = e.data.args?.person_name;
-      if (name && currentPoseIdx === 0 && capturedImages.length === 0) {
-        document.getElementById("eyebrow").textContent = "Scanning " + name;
-      }
-    }
-  });
+  const TARGET = 8;
+  const HOLD_MS = 280;
+  const SNAP_GAP_MS = 140;
 
-  const POSES = [
-    { key: "front", title: "Look toward the camera",   coach: "Relax your shoulders. We’ll capture this in a moment.", check: "front" },
-    { key: "left",  title: "Gently turn a little left", coach: "Keep your eyes on the screen as you turn.", check: "left" },
-    { key: "right", title: "Now a little to the right", coach: "Same idea — slow and easy.", check: "right" },
-    { key: "up",    title: "Tip your chin up slightly", coach: "Just a small lift is enough.", check: "up" },
-    { key: "down",  title: "Softly look down",          coach: "Last one — then we’re done.", check: "down" },
-  ];
-  const HOLD_MS = 900;
-  const POST_SNAP_MS = 650;
-
-  let currentPoseIdx = 0;
-  let capturedImages = [];
-  let poseOkSince = null;
-  let snapping = false;
-  let enrollmentDone = false;
+  let captured = [];
+  let goodSince = null;
+  let lastSnap = 0;
+  let done = false;
+  let personName = "";
 
   const video = document.getElementById("video");
   const overlay = document.getElementById("overlay");
@@ -182,258 +142,221 @@
   const flash = document.getElementById("flash");
   const instrEl = document.getElementById("instruction");
   const coachEl = document.getElementById("coach");
-  const progressEl = document.getElementById("progress");
   const thumbsEl = document.getElementById("thumbs");
   const statusEl = document.getElementById("status");
 
-  POSES.forEach((_, i) => {
-    const d = document.createElement("div");
-    d.className = "step-pill" + (i === 0 ? " active" : "");
-    d.id = "pill-" + i;
-    progressEl.appendChild(d);
+  window.addEventListener("message", (e) => {
+    const name = e.data?.args?.person_name;
+    if (name) {
+      personName = name;
+      document.getElementById("eyebrow").textContent = "Scanning " + name;
+    }
   });
 
-  let tOvX, tOvY, tOvW, tOvH, dOvX, dOvY, dOvW, dOvH, ovalInited = false, holdPct = 0;
-  function resetOvalToCenter(w, h) {
-    tOvX = w * 0.5; tOvY = h * 0.48; tOvW = w * 0.46; tOvH = h * 0.62;
-    dOvX = tOvX; dOvY = tOvY; dOvW = tOvW; dOvH = tOvH;
-    ovalInited = true;
+  function ovalGeom(W, H) {
+    return { cx: W * 0.5, cy: H * 0.46, rx: W * 0.28, ry: H * 0.36 };
   }
-  function lerp(a, b, t) { return a + (b - a) * t; }
 
-  function drawFrame(hasFace, readyPose) {
-    const W = overlay.width, H = overlay.height;
+  function draw(W, H, state) {
+    const { cx, cy, rx, ry } = ovalGeom(W, H);
+    const ready = state === "good" || state === "capturing";
+    const color = ready ? "#34d399" : (state === "face" ? "#38bdf8" : "#64748b");
     const ctx = overlay.getContext("2d");
     ctx.clearRect(0, 0, W, H);
-    const speed = hasFace ? 0.16 : 0.07;
-    dOvX = lerp(dOvX, tOvX, speed);
-    dOvY = lerp(dOvY, tOvY, speed);
-    dOvW = lerp(dOvW, tOvW, speed);
-    dOvH = lerp(dOvH, tOvH, speed);
-
-    const color = readyPose ? "#34d399" : (hasFace ? "#38bdf8" : "#64748b");
-    ctx.save();
     ctx.beginPath();
-    ctx.ellipse(dOvX, dOvY, dOvW / 2, dOvH / 2, 0, 0, Math.PI * 2);
+    ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
     ctx.strokeStyle = color;
-    ctx.lineWidth = readyPose ? 3.5 : 2.2;
+    ctx.lineWidth = ready ? 4 : 2.4;
     ctx.stroke();
-    if (holdPct > 0) {
+    const pct = captured.length / TARGET;
+    if (pct > 0) {
       ctx.beginPath();
-      ctx.ellipse(dOvX, dOvY, dOvW / 2 + 8, dOvH / 2 + 8, 0, -Math.PI / 2, -Math.PI / 2 + holdPct * Math.PI * 2);
+      ctx.ellipse(cx, cy, rx + 10, ry + 10, 0, -Math.PI / 2, -Math.PI / 2 + pct * Math.PI * 2);
       ctx.strokeStyle = "#34d399";
-      ctx.lineWidth = 4;
+      ctx.lineWidth = 5;
       ctx.lineCap = "round";
       ctx.stroke();
     }
-    ctx.restore();
-
     const mctx = maskCanvas.getContext("2d");
     mctx.clearRect(0, 0, W, H);
-    mctx.fillStyle = "rgba(2,6,23,0.58)";
+    mctx.fillStyle = "rgba(2,6,23,0.62)";
     mctx.fillRect(0, 0, W, H);
     mctx.globalCompositeOperation = "destination-out";
     mctx.beginPath();
-    mctx.ellipse(dOvX, dOvY, dOvW / 2 + 4, dOvH / 2 + 4, 0, 0, Math.PI * 2);
+    mctx.ellipse(cx, cy, rx + 2, ry + 2, 0, 0, Math.PI * 2);
     mctx.fill();
     mctx.globalCompositeOperation = "source-over";
   }
 
-  function poseFromLandmarks(lms) {
-    const nose = lms[1], leftEye = lms[33], rightEye = lms[263], chin = lms[152];
-    if (!nose || !leftEye || !rightEye || !chin) return { yaw: 0, pitch: 0 };
-    const midX = (leftEye.x + rightEye.x) / 2;
-    const midY = (leftEye.y + rightEye.y) / 2;
-    const yaw = nose.x - midX;
-    const pitch = nose.y - midY;
-    return { yaw, pitch };
+  function boxOf(det) {
+    const b = det.boundingBox || {};
+    if (b.xCenter != null) return b;
+    const w = b.width || 0.3;
+    const h = b.height || 0.4;
+    return {
+      xCenter: (b.originX || 0) + w / 2,
+      yCenter: (b.originY || 0) + h / 2,
+      width: w,
+      height: h,
+    };
   }
 
-  function poseMatches(check, yaw, pitch) {
-    const ay = Math.abs(yaw), ap = Math.abs(pitch);
-    if (check === "front") return ay < 0.045 && ap < 0.055;
-    if (check === "left")  return yaw > 0.055;
-    if (check === "right") return yaw < -0.055;
-    if (check === "up")    return pitch < -0.04;
-    if (check === "down")  return pitch > 0.05;
-    return true;
-  }
-
-  function coachFor(check, yaw, pitch, hasFace) {
-    if (!hasFace) return "Bring your face into the glow — we’ve got you.";
-    const ok = poseMatches(check, yaw, pitch);
-    if (ok) return "Perfect — hold still for a beat.";
-    if (check === "front") {
-      if (Math.abs(yaw) >= 0.045) return "Come back to center — looking this way is enough.";
-      return "Level your chin just a little.";
+  function scoreFace(det, W, H) {
+    const box = boxOf(det);
+    const fx = box.xCenter * W;
+    const fy = box.yCenter * H;
+    const fw = box.width * W;
+    const { cx, cy, rx } = ovalGeom(W, H);
+    const dx = Math.abs((W - fx) - cx) / rx;
+    const dy = Math.abs(fy - cy) / ovalGeom(W, H).ry;
+    const centered = dx < 0.42 && dy < 0.42;
+    const fill = fw / (rx * 2);
+    const sizeOk = fill > 0.62 && fill < 1.18;
+    let frontal = true;
+    const lms = det.landmarks || [];
+    if (lms.length >= 3) {
+      const re = lms[0], le = lms[1], nose = lms[2];
+      const mid = (re.x + le.x) / 2;
+      frontal = Math.abs(nose.x - mid) < 0.045 && Math.abs(re.y - le.y) < 0.04;
     }
-    if (check === "left")  return "Keep turning left, slowly — you don’t need much.";
-    if (check === "right") return "Ease toward the right. We’ll catch it.";
-    if (check === "up")    return "A tiny chin lift is all we need.";
-    return "Glance down just a touch.";
+    const conf = Array.isArray(det.score) ? Number(det.score[0] || 1) : Number(det.score != null ? det.score : 1);
+    return { centered, sizeOk, frontal, fill, conf, ok: centered && sizeOk && frontal && conf >= 0.5 };
   }
 
-  function doSnap() {
-    if (snapping || enrollmentDone) return;
-    snapping = true;
-    poseOkSince = null;
-    holdPct = 0;
-    flash.style.opacity = "1";
-    setTimeout(() => { flash.style.opacity = "0"; }, 110);
+  function coachFrom(has, s) {
+    if (!has) return "Look into the oval";
+    if (!s.sizeOk && s.fill < 0.62) return "Move a little closer";
+    if (!s.sizeOk && s.fill > 1.18) return "Move back a little";
+    if (!s.centered) return "Center your face";
+    if (!s.frontal) return "Look straight at the camera";
+    return captured.length ? "Hold still — capturing" : "Perfect — hold still";
+  }
 
-    const snapW = video.videoWidth || 340;
-    const snapH = video.videoHeight || 380;
+  function snap() {
+    const W = video.videoWidth || 480;
+    const H = video.videoHeight || 640;
     const sc = document.createElement("canvas");
-    sc.width = snapW; sc.height = snapH;
-    const sctx = sc.getContext("2d");
-    sctx.translate(snapW, 0);
-    sctx.scale(-1, 1);
-    sctx.drawImage(video, 0, 0, snapW, snapH);
-    const dataUrl = sc.toDataURL("image/jpeg", 0.92);
-
+    sc.width = W; sc.height = H;
+    sc.getContext("2d").drawImage(video, 0, 0, W, H);
+    const dataUrl = sc.toDataURL("image/jpeg", 0.88);
+    flash.style.opacity = "0.7";
+    setTimeout(() => { flash.style.opacity = "0"; }, 70);
     const img = document.createElement("img");
     img.className = "thumb";
     img.src = dataUrl;
     thumbsEl.appendChild(img);
-    capturedImages.push({ pose: POSES[currentPoseIdx].key, data: dataUrl });
+    captured.push({ pose: "front", data: dataUrl });
+    statusEl.textContent = captured.length + " / " + TARGET;
+    if (captured.length >= TARGET) finish();
+  }
 
-    const donePill = document.getElementById("pill-" + currentPoseIdx);
-    if (donePill) donePill.className = "step-pill done";
-    statusEl.textContent = (currentPoseIdx + 1) + " of " + POSES.length + " saved";
-    currentPoseIdx++;
+  function finish() {
+    if (done) return;
+    done = true;
+    instrEl.textContent = "You’re in";
+    coachEl.textContent = "Building your face profile…";
+    statusEl.textContent = "";
+    Streamlit.sendValue({ status: "complete", captures: captured });
+    document.getElementById("video-wrap").style.display = "none";
+    document.getElementById("complete-panel").style.display = "flex";
+    try { video.srcObject && video.srcObject.getTracks().forEach(t => t.stop()); } catch (e) {}
+    Streamlit.setFrameHeight(280);
+  }
 
-    if (currentPoseIdx >= POSES.length) {
-      enrollmentDone = true;
-      setTimeout(() => {
-        instrEl.textContent = "All set";
-        coachEl.textContent = "Thanks — that was plenty.";
-        statusEl.textContent = "";
-        Streamlit.sendValue({ status: "complete", captures: capturedImages });
-        document.getElementById("video-wrap").style.display = "none";
-        document.getElementById("complete-panel").style.display = "flex";
-        try { video.srcObject && video.srcObject.getTracks().forEach(t => t.stop()); } catch (e) {}
-        Streamlit.setFrameHeight(420);
-      }, POST_SNAP_MS);
+  function onResults(results) {
+    if (done) return;
+    const W = overlay.width, H = overlay.height;
+    const dets = results.detections || [];
+    const det = dets[0];
+    if (!det) {
+      goodSince = null;
+      instrEl.textContent = "Fit your face in the oval";
+      coachEl.textContent = "Look into the oval";
+      draw(W, H, "none");
       return;
     }
+    const s = scoreFace(det, W, H);
+    const now = performance.now();
+    instrEl.textContent = s.ok ? "Hold still" : "Fit your face in the oval";
+    coachEl.textContent = coachFrom(true, s);
+    draw(W, H, s.ok ? (captured.length ? "capturing" : "good") : "face");
+    if (!s.ok) { goodSince = null; return; }
+    if (!goodSince) goodSince = now;
+    if (now - goodSince < HOLD_MS) return;
+    if (now - lastSnap < SNAP_GAP_MS) return;
+    lastSnap = now;
+    snap();
+  }
 
-    setTimeout(() => {
-      const next = document.getElementById("pill-" + currentPoseIdx);
-      if (next) next.className = "step-pill active";
-      instrEl.textContent = POSES[currentPoseIdx].title;
-      coachEl.textContent = POSES[currentPoseIdx].coach;
-      snapping = false;
-    }, POST_SNAP_MS);
+  function showBlocked() {
+    const permEl = document.getElementById("perm");
+    permEl.style.display = "block";
+    instrEl.textContent = "Camera is blocked";
+    coachEl.textContent = "Allow the camera, or scroll down and upload photos.";
+    statusEl.textContent = "";
+    permEl.innerHTML =
+      "<strong>Click the camera icon with the red X in the address bar.</strong>" +
+      "<ol><li>Choose <b>Allow</b> for 127.0.0.1.</li>" +
+      "<li>Tap <b>Retry camera</b>.</li></ol>" +
+      "<button id='retry-cam' type='button'>Retry camera</button>";
+    const btn = document.getElementById("retry-cam");
+    if (btn) btn.onclick = () => { permEl.style.display = "none"; init(); };
+    Streamlit.setFrameHeight(560);
   }
 
   async function init() {
-    document.getElementById("perm").style.display = "block";
+    statusEl.textContent = "Starting camera…";
     let stream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 720 } },
+        video: { facingMode: "user", width: { ideal: 720 }, height: { ideal: 960 } },
+        audio: false,
       });
     } catch (err) {
-      const permEl = document.getElementById("perm");
-      permEl.style.display = "block";
-      instrEl.textContent = "Chrome blocked the camera";
-      coachEl.textContent = "You can still enroll — scroll down and upload photos, or allow the camera and tap Retry.";
-      statusEl.textContent = "";
-      permEl.innerHTML =
-        "<strong>The address-bar camera icon has a red X.</strong>" +
-        "<ol>" +
-        "<li>Click that camera icon (right side of the URL bar).</li>" +
-        "<li>Choose <b>Allow</b> for 127.0.0.1.</li>" +
-        "<li>Tap <b>Retry camera</b> below — no need to reload the whole site.</li>" +
-        "</ol>" +
-        "<button id='retry-cam' type='button'>Retry camera</button>" +
-        "<p style='margin-top:10px;color:#94a3b8'>If it still fails, use <b>Upload photos instead</b> under this scan.</p>";
-      const btn = document.getElementById("retry-cam");
-      if (btn) btn.onclick = () => { permEl.style.display = "none"; init(); };
-      Streamlit.setFrameHeight(560);
+      showBlocked();
       return;
     }
     document.getElementById("perm").style.display = "none";
     video.srcObject = stream;
-    await new Promise(r => { video.onloadedmetadata = r; });
+    await new Promise((r) => { video.onloadedmetadata = r; });
     await video.play();
 
-    const W = video.videoWidth || 340;
-    const H = video.videoHeight || 380;
+    const W = video.videoWidth || 480;
+    const H = video.videoHeight || 640;
     overlay.width = W; overlay.height = H;
     maskCanvas.width = W; maskCanvas.height = H;
     const wrap = document.getElementById("video-wrap");
-    wrap.style.width = Math.min(W, 320) + "px";
-    wrap.style.height = Math.min(H * (320 / W), 400) + "px";
-    resetOvalToCenter(W, H);
-    instrEl.textContent = POSES[0].title;
-    coachEl.textContent = POSES[0].coach;
-    statusEl.textContent = "When the ring fills, we move on.";
+    const showW = 340;
+    wrap.style.width = showW + "px";
+    wrap.style.height = Math.round(showW * (H / W)) + "px";
+    draw(W, H, "none");
+    instrEl.textContent = "Fit your face in the oval";
+    coachEl.textContent = "Look at the camera. We’ll enroll you in a few seconds.";
+    statusEl.textContent = "Align your face";
 
-    const faceMesh = new FaceMesh({
-      locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${f}`,
+    if (typeof FaceDetection === "undefined") {
+      statusEl.textContent = "Detector still loading… stay in the oval.";
+      let n = 0;
+      const fallback = setInterval(() => {
+        if (done) { clearInterval(fallback); return; }
+        n += 1;
+        snap();
+        if (n >= TARGET) clearInterval(fallback);
+      }, 220);
+      return;
+    }
+
+    const detector = new FaceDetection({
+      locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/${f}`,
     });
-    faceMesh.setOptions({
-      maxNumFaces: 1,
-      refineLandmarks: false,
-      minDetectionConfidence: 0.5,
-      minTrackingConfidence: 0.4,
-    });
-    faceMesh.onResults(onResults);
+    detector.setOptions({ model: "short", minDetectionConfidence: 0.55 });
+    detector.onResults(onResults);
     const cam = new Camera(video, {
-      onFrame: async () => { await faceMesh.send({ image: video }); },
-      width: W, height: H,
+      onFrame: async () => { if (!done) await detector.send({ image: video }); },
+      width: W,
+      height: H,
     });
     cam.start();
-  }
-
-  function onResults(results) {
-    if (enrollmentDone || snapping) { drawFrame(false, false); return; }
-    const W = overlay.width, H = overlay.height;
-    const lms = results.multiFaceLandmarks && results.multiFaceLandmarks[0];
-    const pose = POSES[currentPoseIdx];
-
-    if (!lms || !lms.length) {
-      poseOkSince = null; holdPct = 0;
-      resetOvalToCenter(W, H);
-      drawFrame(false, false);
-      coachEl.textContent = coachFor(pose.check, 0, 0, false);
-      return;
-    }
-
-    let minX = 1, maxX = 0, minY = 1, maxY = 0;
-    for (const lm of lms) {
-      if (lm.x < minX) minX = lm.x;
-      if (lm.x > maxX) maxX = lm.x;
-      if (lm.y < minY) minY = lm.y;
-      if (lm.y > maxY) maxY = lm.y;
-    }
-    const pad = 0.04;
-    const fCX = W * (1 - (minX + maxX) / 2);
-    const fCY = H * (minY + maxY) / 2;
-    const fW = W * (maxX - minX + pad * 2) * 1.35;
-    const fH = H * (maxY - minY + pad * 2) * 1.55;
-    tOvX = Math.max(fW / 2, Math.min(W - fW / 2, fCX));
-    tOvY = Math.max(fH / 2, Math.min(H - fH / 2, fCY));
-    tOvW = Math.min(fW, W * 0.85);
-    tOvH = Math.min(fH, H * 0.85);
-
-    const { yaw, pitch } = poseFromLandmarks(lms);
-    const ready = poseMatches(pose.check, yaw, pitch);
-    coachEl.textContent = coachFor(pose.check, yaw, pitch, true);
-    drawFrame(true, ready);
-
-    const now = performance.now();
-    if (!ready) {
-      poseOkSince = null;
-      holdPct = 0;
-      return;
-    }
-    if (!poseOkSince) poseOkSince = now;
-    const held = now - poseOkSince;
-    holdPct = Math.min(held / HOLD_MS, 1);
-    if (holdPct < 1) return;
-    doSnap();
   }
 
   init();

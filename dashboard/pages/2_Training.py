@@ -277,9 +277,8 @@ with tab_enroll:
         st.subheader("Step 1 — who are we scanning?")
         st.markdown(_wizard_html("person_select"), unsafe_allow_html=True)
         st.caption(
-            "Pick someone on file, or add a name. If Chrome blocks the camera, "
-            "you can upload photos on the next step. Already enrolled? Skip this "
-            "and open **Live Monitor**."
+            "Pick someone, then look into the oval — we auto-capture in a few seconds "
+            "(Lenskart-style). Already enrolled? Open **Live Monitor**."
         )
 
         col_new, col_existing = st.columns(2)
@@ -288,7 +287,7 @@ with tab_enroll:
             st.markdown("#### ➕ New Person")
             new_pid  = st.text_input("Person ID",    placeholder="person_01", key="new_pid_input")
             new_name = st.text_input("Display Name", placeholder="Alice Smith", key="new_name_input")
-            if st.button("Start guided scan →", type="primary", key="btn_create_start"):
+            if st.button("Start scan →", type="primary", key="btn_create_start"):
                 if not new_pid.strip() or not new_name.strip():
                     st.info("Add an ID and a display name so we know who this profile belongs to.")
                 else:
@@ -329,7 +328,7 @@ with tab_enroll:
                              if has_emb else
                              '<span class="badge-pending">⏳ PENDING</span>')
                 st.markdown(f"Images: **{n_imgs}** &nbsp; {badge}", unsafe_allow_html=True)
-                if st.button("Continue scan →", key="btn_add_imgs"):
+                if st.button("Scan face →", key="btn_add_imgs"):
                     st.session_state.enroll_pid      = sel_p.person_id
                     st.session_state.enroll_name     = sel_p.name
                     st.session_state.enroll_pose_idx = 0
@@ -371,17 +370,17 @@ with tab_enroll:
         pid   = st.session_state.enroll_pid
         pname = st.session_state.enroll_name
 
-        st.subheader(f"Step 2 — a short scan for **{pname}**")
+        st.subheader(f"Step 2 — scan **{pname}**")
         st.markdown(_wizard_html("capture"), unsafe_allow_html=True)
         st.caption(
-            "We’ll guide you through five easy angles. Stay in the oval, follow the prompt, "
-            "and we’ll move on by ourselves when each one looks good — about 15 seconds in total."
+            "Fit your face in the oval and look at the camera. "
+            "We snap automatically when it lines up — about 2–3 seconds, no turning left/right."
         )
 
         result = face_capture_component(
             person_name=pname,
-            key=f"fc_scan_{pid}",
-            height=640,
+            key=f"fc_lenskart_{pid}",
+            height=720,
         )
 
         if (
@@ -409,11 +408,7 @@ with tab_enroll:
 
         st.markdown("---")
         st.markdown("### Camera blocked? Upload photos instead")
-        st.caption(
-            "Chrome is blocking this page’s camera (the red-X camera icon in the URL bar). "
-            "You can still enroll: drop 3 or more face photos below (front + left + right is enough), "
-            "or click that icon → Allow → then Retry camera in the scan box."
-        )
+        st.caption("Or drop 3+ face photos here. Front-facing, decent light is enough.")
         uploads = st.file_uploader(
             "Face photos",
             type=["jpg", "jpeg", "png", "webp"],
@@ -453,12 +448,9 @@ with tab_enroll:
         n_imgs = enrollment_mgr.image_count(pid)
         total_snaps = sum(len(v) for v in st.session_state.enroll_snaps.values())
 
-        st.subheader(f"Step 3 — wrapping up for **{pname}**")
+        st.subheader(f"Enrolling **{pname}**")
         st.markdown(_wizard_html("embed"), unsafe_allow_html=True)
-        st.markdown(
-            f"We saved **{total_snaps}** new stills ({n_imgs} photos on file). "
-            "Next we turn those into a face profile — usually a few seconds."
-        )
+        st.caption("Turning those stills into an ArcFace profile — a few seconds.")
 
         def _run_embed():
             return _rebuild_face_profile(pid, pname)
