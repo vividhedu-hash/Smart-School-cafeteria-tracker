@@ -260,6 +260,44 @@ class DatasetManager:
 
         return True
 
+    def plate_unlabelled_images(self) -> list[Path]:
+        """Plate images that have no matching YOLO label file yet."""
+        img_dir = self.plate_images_dir()
+        lbl_dir = self.plate_labels_dir()
+        if not img_dir.exists():
+            return []
+        images = sorted(
+            f for f in img_dir.iterdir()
+            if f.suffix.lower() in SUPPORTED_EXTENSIONS
+        )
+        return [img for img in images if not (lbl_dir / f"{img.stem}.txt").exists()]
+
+    def write_plate_label(self, stem: str, boxes: list[tuple[float, float, float, float]]) -> Path:
+        # [AI-CoLab: Verified by Antigravity] Writes YOLO format label file for plate bounding boxes
+        lbl_dir = self.plate_labels_dir()
+        lbl_dir.mkdir(parents=True, exist_ok=True)
+        lines = []
+        for cx, cy, bw, bh in boxes:
+            values = [max(0.0, min(1.0, float(v))) for v in (cx, cy, bw, bh)]
+            if values[2] <= 0 or values[3] <= 0:
+                continue
+            lines.append("0 " + " ".join(f"{v:.6f}" for v in values))
+        path = lbl_dir / f"{Path(stem).stem}.txt"
+        path.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
+        logger.info("Wrote %d plate box(es) to %s", len(lines), path.name)
+        return path
+
+    def delete_plate_image(self, filename: str) -> bool:
+        """Delete a plate image and its label, if any."""
+        name = Path(str(filename)).name
+        img = self.plate_images_dir() / name
+        if not img.exists():
+            return False
+        img.unlink()
+        label = self.plate_labels_dir() / f"{img.stem}.txt"
+        label.unlink(missing_ok=True)
+        return True
+
     def plate_dataset_stats(self) -> dict:
         img_dir = self.plate_images_dir()
         lbl_dir = self.plate_labels_dir()
