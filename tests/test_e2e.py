@@ -60,7 +60,11 @@ def test_proxy_plate_forces_review_not_auto_confirm(tmp_path):
 
 
 def test_missing_plate_weights_do_not_silently_load_coco(tmp_path):
-    det = PlateDetector(tmp_path / "nope.pt", allow_coco_fallback=False)
+    det = PlateDetector(
+        tmp_path / "nope.pt",
+        allow_coco_fallback=False,
+        allow_visual_fallback=False,
+    )
     try:
         det.load()
         assert False, "expected ModelNotFoundError"

@@ -29,6 +29,8 @@ def test_load_settings_reads_project_yaml_not_cwd_defaults(tmp_path, monkeypatch
         assert cfg.camera.width == 1280
         assert cfg.camera.height == 720
         assert cfg.models.plate.allow_coco_fallback is False
+        assert cfg.models.plate.allow_visual_fallback is True
+        assert cfg.models.waste.allow_visual_fallback is True
         assert cfg.inference.frame_skip == 2
         assert cfg.inference.debug_window is False
         assert cfg.event.cooldown_seconds == 2.0

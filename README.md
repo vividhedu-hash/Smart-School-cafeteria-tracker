@@ -6,25 +6,27 @@ local database — all from a single webcam.
 
 ## ⚠️ Current Status — read this first
 
-The waste pipeline requires **two trained models that do not ship with this
-repo** (you must train them on your own cafeteria images):
+The waste pipeline requires **two detectors**. Both ship with a working
+OpenCV visual backend so you can demo end-to-end today. Training YOLO on
+your own cafeteria photos is optional and replaces the visual backend.
 
-| Component | Status without training | What to do |
-|-----------|------------------------|------------|
-| Face recognition | ✅ Works out of the box (InsightFace, auto-downloads) | Enroll people via dashboard |
-| Waste classifier | ❌ **Must be trained** — pipeline disabled until then | Upload ≥25 images/class, train, activate |
-| Plate detector | ❌ **Must be trained** — pipeline disabled until then | Capture + label plate images, train, activate |
+| Component | Out of the box | After you train |
+|-----------|----------------|-----------------|
+| Face recognition | ✅ InsightFace (auto-downloads) | Enroll people via dashboard |
+| Waste classifier | ✅ OpenCV colour occupancy | Upload ≥25 images/class, train, activate |
+| Plate detector | ✅ OpenCV circles / plate blobs | Capture + label plate images, train, activate |
 
 **Honesty guarantees (by design):**
-- No waste transactions are ever created without both real models loaded.
-- The engine never fabricates detections, confidences, or waste labels.
+- Visual backends are real computer vision on the live camera frame, labelled
+  `backend=visual` in logs and on the home page — not random labels.
 - Optional COCO "proxy" plate mode (`models.plate.allow_coco_fallback: true`)
-  is clearly labelled `plate_proxy` in logs/UI — it is a demo stand-in, not
-  real plate detection.
+  is clearly labelled `plate_proxy` and forces review. It is off by default.
 - The dashboard home page shows a live **System Readiness** panel.
+- Empty plates do not create waste transactions.
 
-Until models are trained, the engine runs **face-recognition-only mode**
-(live "who's here" panel) and creates no transactions.
+To improve accuracy later: upload cafeteria photos on the Training page
+(or run `scripts/quickstart.py`) and activate the new YOLO versions. The
+running engine hot-swaps within a few seconds.
 
 ---
 
@@ -69,10 +71,10 @@ source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -e .
 ```
 
-### 2. First Run (no models trained yet)
+### 2. First Run
 
-The system gracefully starts without models — detectors report "not loaded" and 
-the state machine stays in IDLE until models are available.
+The pipeline is live on first start: plate + waste use built-in OpenCV
+visual analysis; faces use InsightFace. Train YOLO later if you want.
 
 ```bash
 # Terminal 1: Start the inference engine
@@ -82,9 +84,10 @@ python -m cafeteria.main
 streamlit run dashboard/app.py
 ```
 
-Open http://localhost:8501 in your browser.
+Or one command: `python run.py` then click **▶ Start Engine** and open
+**Live Monitor**. Dashboard: http://localhost:8501
 
-### 3. Train Models
+### 3. Train YOLO models (optional, higher accuracy)
 
 **Option A — Dashboard:**
 1. Open `🧠 Training` page
