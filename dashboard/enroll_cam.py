@@ -35,12 +35,19 @@ MISS_TOLERANCE_SECONDS = 0.7    # a dropped detection must not reset the hold
 RELAX_AFTER_SECONDS = 4.0       # face visible but fussy → start snapping
 NO_FACE_HELP_SECONDS = 8.0      # nothing found → tell the operator, keep trying
 
-# Geometry tolerances. These are wide on purpose: the oval is a hint for the
-# operator, not an acceptance test. Tight values are what made enrollment
-# feel impossible to complete.
+# Geometry tolerances, in fractions of the frame. These are wide on purpose:
+# the oval is a hint for the operator, not an acceptance test. Tight values are
+# what made enrollment feel impossible to complete.
+OVAL_CX, OVAL_CY = 0.50, 0.46
+OVAL_RX, OVAL_RY = 0.22, 0.32
 CENTER_TOLERANCE = 0.90         # fraction of the oval radius
 FILL_MIN = 0.25
 FILL_MAX = 2.20
+
+# Haar on a full 720p frame costs ~700 ms, which makes the preview crawl and
+# the coaching feel unresponsive. Detect on a small copy and scale the result.
+DETECT_WIDTH = 480
+PREVIEW_WIDTH = 720             # what the browser receives; captures stay full-res
 
 
 def capture_decision(
@@ -301,23 +308,39 @@ class EnrollCamera:
 
     # ── Overlay / coaching ───────────────────────────────────────────────────
 
-    def _overlay(self, frame: np.ndarray) -> tuple[np.ndarray, bool, bool]:
+    def _detect_face(self, frame: np.ndarray) -> Optional[tuple[float, float, float]]:
+        """
+        Largest face as ``(cx, cy, width)`` in frame fractions, or None.
+
+        Runs on a small grayscale copy — same detections, a fraction of the cost.
+        """
         h, w = frame.shape[:2]
-        cx, cy = w // 2, int(h * 0.46)
-        rx, ry = int(w * 0.22), int(h * 0.32)
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        faces = self._cascade.detectMultiScale(
-            gray, scaleFactor=1.08, minNeighbors=3, minSize=(56, 56)
+        scale = DETECT_WIDTH / float(w) if w > DETECT_WIDTH else 1.0
+        small = (
+            cv2.resize(frame, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
+            if scale < 1.0 else frame
         )
+        gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
+        faces = self._cascade.detectMultiScale(
+            gray, scaleFactor=1.1, minNeighbors=3, minSize=(32, 32)
+        )
+        if not len(faces):
+            return None
+        x, y, fw, fh = max(faces, key=lambda f: f[2] * f[3])
+        sw, sh = gray.shape[1], gray.shape[0]
+        return (x + fw / 2) / sw, (y + fh / 2) / sh, fw / sw
+
+    def _overlay(self, frame: np.ndarray) -> tuple[np.ndarray, bool, bool]:
+        face = self._detect_face(frame)
         aligned = False
         hint = "Look towards the camera"
-        if len(faces):
-            x, y, fw, fh = max(faces, key=lambda f: f[2] * f[3])
-            fx, fy = x + fw / 2, y + fh / 2
-            fill = fw / max(rx * 2, 1)
+
+        if face is not None:
+            fx, fy, fw = face
+            fill = fw / (OVAL_RX * 2)
             centered = (
-                abs(fx - cx) < rx * CENTER_TOLERANCE
-                and abs(fy - cy) < ry * CENTER_TOLERANCE
+                abs(fx - OVAL_CX) < OVAL_RX * CENTER_TOLERANCE
+                and abs(fy - OVAL_CY) < OVAL_RY * CENTER_TOLERANCE
             )
             size_ok = FILL_MIN < fill < FILL_MAX
             aligned = centered and size_ok
@@ -333,23 +356,36 @@ class EnrollCamera:
         with self._lock:
             if not self.done and not self.captures:
                 self.hint = hint
-
-        vis = frame.copy()
-        mask = np.zeros((h, w), np.uint8)
-        cv2.ellipse(mask, (cx, cy), (rx, ry), 0, 0, 360, 255, -1)
-        dark = (vis * 0.45).astype(np.uint8)
-        vis = np.where(mask[:, :, None] == 255, vis, dark)
-        color = (52, 211, 153) if aligned else (56, 189, 248) if len(faces) else (100, 116, 139)
-        cv2.ellipse(vis, (cx, cy), (rx, ry), 0, 0, 360, color, 3)
-        with self._lock:
             n = len(self.captures)
+
+        # Preview is downscaled: the browser shows it at ~420 px wide, and a
+        # full-res JPEG every tick is wasted bandwidth.
+        h, w = frame.shape[:2]
+        if w > PREVIEW_WIDTH:
+            ph = int(h * PREVIEW_WIDTH / w)
+            vis = cv2.resize(frame, (PREVIEW_WIDTH, ph), interpolation=cv2.INTER_AREA)
+        else:
+            vis = frame.copy()
+        vh, vw = vis.shape[:2]
+        cx, cy = int(vw * OVAL_CX), int(vh * OVAL_CY)
+        rx, ry = int(vw * OVAL_RX), int(vh * OVAL_RY)
+
+        mask = np.zeros((vh, vw), np.uint8)
+        cv2.ellipse(mask, (cx, cy), (rx, ry), 0, 0, 360, 255, -1)
+        vis = np.where(mask[:, :, None] == 255, vis, (vis * 0.45).astype(np.uint8))
+        colour = (
+            (52, 211, 153) if aligned
+            else (56, 189, 248) if face is not None
+            else (100, 116, 139)
+        )
+        cv2.ellipse(vis, (cx, cy), (rx, ry), 0, 0, 360, colour, 3)
         if n:
             cv2.ellipse(
                 vis, (cx, cy), (rx + 10, ry + 10), 0, -90,
                 -90 + int(360 * n / TARGET_FRAMES), (52, 211, 153), 4,
             )
         # Mirror only what the operator sees; saved frames stay un-flipped.
-        return cv2.flip(vis, 1), aligned, bool(len(faces))
+        return cv2.flip(vis, 1), aligned, face is not None
 
 
 _SESSIONS: dict[str, EnrollCamera] = {}
