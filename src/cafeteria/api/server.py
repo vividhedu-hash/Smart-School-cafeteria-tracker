@@ -5,7 +5,8 @@ The inference process owns camera + models and serves:
 
   GET  /health
   GET  /state
-  GET  /frame.jpg
+  GET  /frame.jpg      annotated frame (Live Monitor)
+  GET  /raw.jpg        clean frame (enrollment / dataset capture)
   POST /heartbeat
   POST /command
 
@@ -41,11 +42,13 @@ class EngineAPIState:
         frame_path: Path,
         heartbeat_path: Path,
         commands_path: Path,
+        raw_frame_path: Optional[Path] = None,
         on_command: Optional[Callable[[dict], None]] = None,
         token: Optional[str] = None,
     ) -> None:
         self.get_state = get_state
         self.frame_path = Path(frame_path)
+        self.raw_frame_path = Path(raw_frame_path) if raw_frame_path else Path(frame_path)
         self.heartbeat_path = Path(heartbeat_path)
         self.commands_path = Path(commands_path)
         self.on_command = on_command
@@ -104,12 +107,15 @@ def make_handler(api: EngineAPIState):
                 payload["engine_pid"] = api.pid
                 self._send_json(200, payload)
                 return
-            if path in ("/frame", "/frame.jpg"):
-                if not api.frame_path.exists():
+            if path in ("/frame", "/frame.jpg", "/raw", "/raw.jpg"):
+                jpeg_path = (
+                    api.raw_frame_path if path in ("/raw", "/raw.jpg") else api.frame_path
+                )
+                if not jpeg_path.exists():
                     self._send_json(404, {"ok": False, "error": "no frame yet"})
                     return
                 try:
-                    body = api.frame_path.read_bytes()
+                    body = jpeg_path.read_bytes()
                 except OSError as exc:
                     self._send_json(500, {"ok": False, "error": str(exc)})
                     return
@@ -169,6 +175,7 @@ def start_engine_api(
     frame_path: Path,
     heartbeat_path: Path,
     commands_path: Path,
+    raw_frame_path: Optional[Path] = None,
     on_command: Optional[Callable[[dict], None]] = None,
     token: Optional[str] = None,
 ) -> ThreadingHTTPServer:
@@ -176,6 +183,7 @@ def start_engine_api(
     api = EngineAPIState(
         get_state=get_state,
         frame_path=frame_path,
+        raw_frame_path=raw_frame_path,
         heartbeat_path=heartbeat_path,
         commands_path=commands_path,
         on_command=on_command,

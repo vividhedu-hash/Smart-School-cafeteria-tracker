@@ -104,6 +104,35 @@ def fetch_frame_bytes(
     return None
 
 
+def fetch_raw_frame_bytes(
+    # [AI-CoLab: Verified by Antigravity] Fetch un-annotated raw JPEG frame for enrollment camera sharing
+    host: Optional[str] = None,
+    port: Optional[int] = None,
+    fallback_path: Optional[str | Path] = None,
+) -> Optional[bytes]:
+    """
+    Clean, un-annotated camera frame from the engine.
+
+    Used by enrollment and dataset capture so they can share the camera the
+    engine already owns instead of opening a second capture device.
+    """
+    try:
+        with _urlopen(f"{api_base_url(host, port)}/raw.jpg", timeout=0.8) as resp:
+            body = resp.read()
+            if body:
+                return body
+    except (urllib.error.URLError, TimeoutError, OSError):
+        pass
+    if fallback_path:
+        path = Path(fallback_path)
+        if path.exists():
+            try:
+                return path.read_bytes()
+            except OSError:
+                return None
+    return None
+
+
 def post_heartbeat(host: Optional[str] = None, port: Optional[int] = None) -> bool:
     try:
         with _urlopen(f"{api_base_url(host, port)}/heartbeat", data=b"{}", timeout=0.4):

@@ -8,11 +8,12 @@ from __future__ import annotations
 
 from typing import Optional
 
-# Live Monitor writes a heartbeat ~every POLL_MS (400 ms). 8s means the LED
-# drops shortly after leaving that page. Startup grace covers InsightFace load.
-# [AI-CoLab: Cursor] Idle shutdown is 8s, NOT 30s. 30s is embedding reload in main.py.
-DEFAULT_IDLE_SECONDS = 8.0
-STARTUP_GRACE_SECONDS = 40.0
+# Live Monitor and the enrollment wizard both heartbeat while they are open.
+# 45s is long enough to survive a slow rerun, a tab switch, or a page load
+# without the camera dying mid-task; the LED still drops within a minute of
+# walking away. Startup grace covers a cold InsightFace load on CPU.
+DEFAULT_IDLE_SECONDS = 45.0
+STARTUP_GRACE_SECONDS = 90.0
 
 
 def should_idle_shutdown(
