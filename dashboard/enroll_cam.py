@@ -113,7 +113,8 @@ class EnrollCamera:
         self.started_at = time.monotonic()
         self._frame_provider = frame_provider
         self._first_face_at: Optional[float] = None
-        self._snap_requested = False
+        # A counter, not a flag: two quick presses must yield two frames.
+        self._snaps_requested = 0
         self._stop = threading.Event()
         self._lock = threading.Lock()
         self._cascade = cv2.CascadeClassifier(
@@ -128,9 +129,9 @@ class EnrollCamera:
         self._stop.set()
 
     def request_snap(self) -> None:
-        """Manual capture — takes the current frame regardless of alignment."""
+        # [AI-CoLab: Verified by Antigravity] Thread-safe shutter counter increment for manual capture
         with self._lock:
-            self._snap_requested = True
+            self._snaps_requested += 1
 
     def finish_now(self) -> bool:
         """Accept whatever has been captured so far. False if nothing yet."""
@@ -246,8 +247,9 @@ class EnrollCamera:
                 self.face_visible = face_found
                 if face_found and self._first_face_at is None:
                     self._first_face_at = now
-                manual = self._snap_requested
-                self._snap_requested = False
+                manual = self._snaps_requested > 0
+                if manual:
+                    self._snaps_requested -= 1
                 first_face_at = self._first_face_at
 
             if aligned:
