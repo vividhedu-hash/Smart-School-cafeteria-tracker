@@ -120,8 +120,11 @@ class ModelConfig(BaseModel):
     iou: float = 0.50
     classes: Optional[Any] = None
     # Plate only: explicit opt-in for COCO "proxy mode" when trained weights
-    # are missing. Default False = missing weights raise ModelNotFoundError.
+    # are missing. Default False = do not silently use COCO-as-plate.
     allow_coco_fallback: bool = False
+    # Default True: missing YOLO weights use the built-in OpenCV visual
+    # detector so the live pipeline still runs. Set false to require training.
+    allow_visual_fallback: bool = True
 
 
 class ModelsSettings(BaseModel):

@@ -135,6 +135,9 @@ def run_engine() -> None:
             roi={"x1": cfg.roi.plate.x1, "y1": cfg.roi.plate.y1,
                  "x2": cfg.roi.plate.x2, "y2": cfg.roi.plate.y2},
             allow_coco_fallback=cfg.models.plate.allow_coco_fallback,
+            allow_visual_fallback=getattr(
+                cfg.models.plate, "allow_visual_fallback", True
+            ),
         )
         plate_detector.load()
         if plate_detector.is_proxy:
@@ -152,6 +155,9 @@ def run_engine() -> None:
             weights_path=waste_weights,
             confidence=cfg.models.waste.confidence,
             device=cfg.device,
+            allow_visual_fallback=getattr(
+                cfg.models.waste, "allow_visual_fallback", True
+            ),
         )
         waste_detector.load()
     except ModelNotFoundError as e:
@@ -357,7 +363,7 @@ def run_engine() -> None:
     _face_thread: threading.Thread | None = None
 
     def _pipeline_ready() -> bool:
-        """Both real models loaded — full waste pipeline may run."""
+        """Plate + waste detectors are loaded (YOLO or visual)."""
         return (
             plate_detector is not None and getattr(plate_detector, "is_loaded", False)
             and waste_detector is not None and getattr(waste_detector, "is_loaded", False)
@@ -370,6 +376,8 @@ def run_engine() -> None:
         waste_ok = waste_detector is not None and waste_detector.is_loaded
         face_ok = face_engine is not None and face_engine.is_loaded
         proxy = plate_detector is not None and getattr(plate_detector, "proxy_mode", False)
+        plate_backend = getattr(plate_detector, "backend", "none") if plate_detector else "none"
+        waste_backend = getattr(waste_detector, "backend", "none") if waste_detector else "none"
         readiness = compute_readiness(
             plate_model_loaded=plate_ok,
             waste_model_loaded=waste_ok,
@@ -377,6 +385,8 @@ def run_engine() -> None:
             camera_connected=cam_ok,
             enrolled_count=matcher.enrolled_count,
             plate_proxy_mode=proxy,
+            plate_backend=plate_backend,
+            waste_backend=waste_backend,
         )
         return {
             "camera_connected": cam_ok,
@@ -393,11 +403,13 @@ def run_engine() -> None:
             "pipeline_ready": _pipeline_ready(),
             "plate_proxy": proxy,
             "plate_proxy_mode": proxy,
+            "plate_backend": plate_backend,
+            "waste_backend": waste_backend,
             "waste_model_missing": not waste_ok,
             "enrolled_persons": matcher.enrolled_count,
             "active_models": {
-                "plate": registry.active_version_string("plate"),
-                "waste": registry.active_version_string("waste"),
+                "plate": registry.active_version_string("plate") or plate_backend,
+                "waste": registry.active_version_string("waste") or waste_backend,
             },
             "similarity_threshold": cfg.recognition.similarity_threshold,
             "api": {
@@ -409,8 +421,7 @@ def run_engine() -> None:
         }
 
     def _ensure_face_thread(should_run: bool) -> None:
-        """Start/stop the always-on face thread as pipeline readiness changes
-        (e.g. after a model is trained and hot-swapped in)."""
+        """Start/stop the always-on face thread."""
         nonlocal _face_thread
         if should_run and _face_thread is None and face_engine and face_engine.is_loaded:
             _face_thread_stop.clear()
@@ -418,14 +429,15 @@ def run_engine() -> None:
                 target=_face_inference_worker, daemon=True, name="face-inference"
             )
             _face_thread.start()
-            logger.info("Face inference thread started (always-on mode)")
+            logger.info("Face inference thread started")
         elif not should_run and _face_thread is not None:
             _face_thread_stop.set()
             _face_thread.join(timeout=2.0)
             _face_thread = None
-            logger.info("Face inference thread stopped — full pipeline active")
+            logger.info("Face inference thread stopped")
 
-    _ensure_face_thread(not _pipeline_ready())
+    # Live identity panel stays on even when the waste pipeline is active.
+    _ensure_face_thread(bool(face_engine and face_engine.is_loaded))
 
     api_server = None
     try:
@@ -470,9 +482,7 @@ def run_engine() -> None:
             if now - last_registry_check > 5.0:
                 last_registry_check = now
                 _check_model_hotswap(registry, plate_detector, waste_detector, project_root)
-                # Newly-trained models may flip us from face-only into full
-                # pipeline mode (or back) without a restart.
-                _ensure_face_thread(not _pipeline_ready())
+                _ensure_face_thread(bool(face_engine and face_engine.is_loaded))
 
             # ── Heartbeat check (every 1 s) ──────────────────────────────
             if now - _last_heartbeat_check > 1.0:
@@ -506,23 +516,10 @@ def run_engine() -> None:
                 _handle_command(cmd, matcher, plate_detector, waste_detector, registry, project_root)
 
             if _face_thread is not None:
-                # ── Threaded always-on face scan (no plate model) ────────
-                # Queue the latest frame for the face inference thread
                 with _face_frame_lock:
                     _face_inference_frame = frame.image
-
-                # Read latest result from the thread (non-blocking)
                 with _face_result_lock:
                     current_face_match = _face_result
-
-                # Still write metrics + debug frame every loop iteration
-                metrics.set_state(state_machine.state.value)
-                metrics.write_state(_runtime_extra())
-                _write_debug_frame(frame.image, frames_dir, debug_display,
-                                   state_machine.state.value, fps,
-                                   current_plate_det, current_waste_result,
-                                   current_face_match, cfg.roi)
-                continue
 
             # ── Frame skip for plate detection ───────────────────────────
             run_inference = (frame_count % max(1, cfg.inference.frame_skip) == 0)
@@ -544,12 +541,12 @@ def run_engine() -> None:
                 ctx = event_manager._ctx
                 current_plate_det = ctx.best_plate_detection
                 current_waste_result = ctx.waste_result
-                current_face_match = ctx.face_match
+                if ctx.face_match is not None:
+                    current_face_match = ctx.face_match
             else:
                 if state_machine.is_idle():
                     current_plate_det = None
                     current_waste_result = None
-                    current_face_match = None
 
             # ── Commit completed event ────────────────────────────────────
             if completed is not None:

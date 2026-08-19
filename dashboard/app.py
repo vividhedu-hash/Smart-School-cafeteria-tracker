@@ -221,28 +221,32 @@ def _readiness() -> list[tuple[str, str, str]]:
     from cafeteria.training.registry import ModelRegistry
     registry = ModelRegistry(cfg.project_root / "models" / "registry.json")
 
-    # Plate model
     plate_active = registry.get_active_weights("plate")
     plate_default = cfg.project_root / cfg.models.plate.weights
     plate_proxy = bool(state_data.get("plate_proxy")) if state_data else False
-    if plate_active and Path(plate_active).exists():
-        rows.append(("Plate model", "READY", f"active: {registry.active_version_string('plate')}"))
-    elif plate_default.exists():
-        rows.append(("Plate model", "READY", str(plate_default.name)))
-    elif plate_proxy:
-        rows.append(("Plate model", "PROXY", "COCO demo proxy — NOT a trained plate detector"))
-    else:
-        rows.append(("Plate model", "MISSING", "train via Training page — pipeline disabled until then"))
+    plate_backend = str((state_data or {}).get("plate_backend") or "")
+    waste_backend = str((state_data or {}).get("waste_backend") or "")
 
-    # Waste model
+    if plate_active and Path(plate_active).exists():
+        rows.append(("Plate model", "READY", f"YOLO {registry.active_version_string('plate')}"))
+    elif plate_default.exists():
+        rows.append(("Plate model", "READY", f"YOLO {plate_default.name}"))
+    elif plate_proxy or plate_backend == "coco_proxy":
+        rows.append(("Plate model", "PROXY", "COCO demo proxy — not a trained plate detector"))
+    else:
+        rows.append(("Plate model", "READY", "OpenCV visual — train YOLO later for higher accuracy"))
+
     waste_active = registry.get_active_weights("waste")
     waste_default = cfg.project_root / cfg.models.waste.weights
     if waste_active and Path(waste_active).exists():
-        rows.append(("Waste model", "READY", f"active: {registry.active_version_string('waste')}"))
+        rows.append(("Waste model", "READY", f"YOLO {registry.active_version_string('waste')}"))
     elif waste_default.exists():
-        rows.append(("Waste model", "READY", str(waste_default.name)))
+        rows.append(("Waste model", "READY", f"YOLO {waste_default.name}"))
     else:
-        rows.append(("Waste model", "MISSING", "upload images + train via Training page"))
+        detail = "OpenCV visual — train YOLO later for higher accuracy"
+        if waste_backend == "yolo":
+            detail = "YOLO (engine)"
+        rows.append(("Waste model", "READY", detail))
 
     # Face engine (model pack on disk)
     face_pack_dir = cfg.project_root / "models" / "face" / "models" / cfg.recognition.model_pack
@@ -306,16 +310,16 @@ try:
                 unsafe_allow_html=True,
             )
 
-    _pipeline_ok = all(
-        s in ("READY",) for n, s, _ in _rows if n in ("Plate model", "Waste model")
+    _yolo_ok = all(
+        "YOLO" in d for n, s, d in _rows if n in ("Plate model", "Waste model")
     )
-    if not _pipeline_ok:
-        st.warning(
-            "⚠️ **Waste pipeline is DISABLED** — it requires a trained plate model "
-            "AND a trained waste model. Until both exist, the engine runs "
-            "face-recognition-only mode and will not create waste transactions. "
-            "No results are ever fabricated.",
-            icon="⚠️",
+    if not _yolo_ok and all(s == "READY" for n, s, _ in _rows if n in ("Plate model", "Waste model")):
+        st.info(
+            "The waste pipeline is **ON** using built-in OpenCV visual analysis "
+            "(real computer vision on the camera frame — not mocked labels). "
+            "Upload cafeteria photos on the Training page and train YOLO when "
+            "you want higher accuracy.",
+            icon="ℹ️",
         )
     if any(s == "PROXY" for _, s, _ in _rows):
         st.warning(
@@ -338,41 +342,40 @@ steps_html = """
 
   <div class="step-card">
     <div class="step-card-num">01</div>
-    <div class="step-card-title">Enroll People</div>
+    <div class="step-card-title">Start the engine</div>
     <div class="step-card-desc">
-      Go to <b>🧠 Training → Face Enrollment</b>.<br>
-      The camera opens automatically in your browser.<br>
-      Follow the on-screen pose guide (front, left, right…).
+      Click <b>▶ Start Engine</b> in the sidebar, then open
+      <b>📹 Live Monitor</b>. The camera stays on while that page is open.
     </div>
   </div>
 
   <div class="step-card">
     <div class="step-card-num">02</div>
-    <div class="step-card-title">Upload Waste Images</div>
+    <div class="step-card-title">Enroll faces (optional)</div>
     <div class="step-card-desc">
-      Go to <b>🧠 Training → Waste Dataset</b>.<br>
-      Drag &amp; drop plate photos into the correct waste category.<br>
-      Aim for 50+ images per category.
+      Go to <b>🧠 Training → Face Enrollment</b>.<br>
+      Follow the pose guide. Unknown faces still create
+      events — they land in the Review Queue.
     </div>
   </div>
 
   <div class="step-card">
     <div class="step-card-num">03</div>
-    <div class="step-card-title">Train the Model</div>
+    <div class="step-card-title">Hold a plate in view</div>
     <div class="step-card-desc">
-      Go to <b>🧠 Training → Train Model</b>.<br>
-      Click <b>START TRAINING</b>. The system fine-tunes<br>
-      a YOLOv8 classifier on your dataset.
+      Place a plate in the lower part of the camera view.
+      Empty plates are ignored. Leftovers create one transaction
+      with an evidence photo.
     </div>
   </div>
 
   <div class="step-card">
     <div class="step-card-num">04</div>
-    <div class="step-card-title">Monitor Live</div>
+    <div class="step-card-title">Train YOLO (optional)</div>
     <div class="step-card-desc">
-      Go to <b>📹 Live Monitor</b>.<br>
-      See the real-time annotated camera feed,<br>
-      pipeline state, and live waste events.
+      Upload cafeteria photos on <b>🧠 Training</b> and click
+      <b>START TRAINING</b> to replace the built-in visual
+      detectors with a fine-tuned YOLOv8 model.
     </div>
   </div>
 

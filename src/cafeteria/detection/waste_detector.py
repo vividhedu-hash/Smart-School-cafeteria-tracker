@@ -3,7 +3,9 @@ Waste classifier using Ultralytics YOLO classification model.
 
 Classes: EMPTY | LOW_WASTE | MEDIUM_WASTE | HIGH_WASTE
 
-If the model weights file is missing, raises ModelNotFoundError.
+If the model weights file is missing, the default is a real OpenCV
+colour-occupancy classifier (labelled `backend=visual`). Training a
+YOLOv8-cls model replaces this backend automatically.
 """
 from __future__ import annotations
 
@@ -51,6 +53,8 @@ class WasteDetector:
         confidence:    Minimum confidence to accept a classification.
         device:        Compute device ("cpu", "cuda:0", "mps").
         class_map:     Dict mapping class index → label string.
+        allow_visual_fallback: Default True. If trained weights are missing,
+                        use OpenCV colour occupancy so the live pipeline runs.
     """
 
     def __init__(
@@ -59,39 +63,69 @@ class WasteDetector:
         confidence: float = 0.55,
         device: str = "cpu",
         class_map: Optional[dict] = None,
+        allow_visual_fallback: bool = True,
     ) -> None:
         self._weights_path = Path(weights_path)
         self._confidence = confidence
         self._device = device
         self._class_map = class_map or DEFAULT_CLASS_MAP
+        self._allow_visual_fallback = allow_visual_fallback
         self._model = None
         self._loaded = False
+        self.visual_mode = False
+        self.backend = "none"
 
     def load(self) -> None:
-        """Load the YOLO classification model."""
+        """Load the YOLO classification model, or the OpenCV visual backend."""
+        self.visual_mode = False
+        self.backend = "none"
+        self._model = None
+
         if not self._weights_path.exists():
+            if self._allow_visual_fallback:
+                self.visual_mode = True
+                self.backend = "visual"
+                self._loaded = True
+                logger.info(
+                    "Waste detector: OpenCV visual backend (no trained YOLO at %s). "
+                    "Train a waste model later for higher accuracy.",
+                    self._weights_path,
+                )
+                return
             raise ModelNotFoundError(
                 f"Waste classifier model not found: {self._weights_path}\n"
                 "Action required: Train a waste classification model first.\n"
                 "  1. Open the dashboard → Training page\n"
                 "  2. Upload waste images per category (EMPTY, LOW_WASTE, etc.)\n"
                 "  3. Click START TRAINING\n"
-                "  4. Activate the trained model"
+                "  4. Activate the trained model\n"
+                "(Built-in OpenCV visual classification is on by default. "
+                "Set models.waste.allow_visual_fallback: false to disable it.)"
             )
 
         try:
             from ultralytics import YOLO
             self._model = YOLO(str(self._weights_path))
-            # Warm up
             dummy = np.zeros((224, 224, 3), dtype=np.uint8)
             self._model.predict(dummy, device=self._device, verbose=False)
             self._loaded = True
+            self.backend = "yolo"
             logger.info(
-                "Waste detector loaded — weights=%s  device=%s",
+                "Waste detector loaded — backend=yolo weights=%s device=%s",
                 self._weights_path,
                 self._device,
             )
         except Exception as exc:
+            if self._allow_visual_fallback:
+                logger.warning(
+                    "YOLO waste load failed (%s) — falling back to OpenCV visual classifier.",
+                    exc,
+                )
+                self.visual_mode = True
+                self.backend = "visual"
+                self._model = None
+                self._loaded = True
+                return
             raise RuntimeError(f"Failed to load waste detector: {exc}") from exc
 
     @property
@@ -117,6 +151,10 @@ class WasteDetector:
 
         if plate_crop is None or plate_crop.size == 0:
             raise ValueError("Empty plate crop passed to WasteDetector.classify()")
+
+        if self.visual_mode:
+            from cafeteria.detection.visual import classify_waste_visual
+            return classify_waste_visual(plate_crop)
 
         results = self._model.predict(
             plate_crop,

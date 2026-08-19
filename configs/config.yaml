@@ -44,12 +44,14 @@ models:
     # HONESTY GATE: if true and no trained plate model exists, fall back to a
     # pretrained COCO model (detects bowls/cups/plates-ish objects). This is a
     # DEMO PROXY, not real plate detection — it is clearly labelled in the
-    # dashboard and logs. Default false: missing model = pipeline disabled.
+    # dashboard and logs. Default false. Visual OpenCV fallback is separate.
     allow_coco_fallback: false
+    allow_visual_fallback: true
   waste:
     weights: "models/waste/best.pt"
     confidence: 0.55
     iou: 0.50
+    allow_visual_fallback: true
     # Waste classification label map (auto-detected from training)
     classes:
       0: "EMPTY"

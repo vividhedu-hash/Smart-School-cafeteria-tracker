@@ -72,15 +72,16 @@ def compute_readiness(
     camera_connected: bool,
     enrolled_count: int,
     plate_proxy_mode: bool = False,
+    plate_backend: str = "",
+    waste_backend: str = "",
 ) -> dict:
     """
     Compute whether the pipeline is able to commit transactions.
 
-    `ready` is True only when the camera is connected AND a plate detector
-    is loaded (trained or explicit proxy) AND a trained waste classifier is
-    loaded. A missing face engine or zero enrollments do NOT block readiness
-    (transactions are still committed, just as REVIEW_REQUIRED), but they are
-    reported as warnings.
+    `ready` is True when the camera is connected AND a plate detector is
+    loaded (YOLO, OpenCV visual, or explicit COCO proxy) AND a waste
+    classifier is loaded (YOLO or OpenCV visual). Face / enrollment gaps
+    do not block readiness — those events go to the review queue.
 
     Returns a JSON-serialisable dict for runtime_state.json.
     """
@@ -90,14 +91,24 @@ def compute_readiness(
     if not camera_connected:
         blocking.append("CAMERA NOT CONNECTED")
     if not plate_model_loaded:
-        blocking.append("PLATE MODEL NOT TRAINED — pipeline disabled")
+        blocking.append("PLATE DETECTOR NOT LOADED — pipeline disabled")
     if not waste_model_loaded:
-        blocking.append("WASTE MODEL NOT TRAINED — pipeline disabled")
+        blocking.append("WASTE CLASSIFIER NOT LOADED — pipeline disabled")
 
     if plate_proxy_mode:
         warnings.append(
             "PLATE PROXY MODE — COCO stand-in detector; all transactions "
             "flagged for review"
+        )
+    if plate_backend == "visual":
+        warnings.append(
+            "Plate detector is OpenCV visual (not a trained YOLO). "
+            "Train a plate model for higher accuracy."
+        )
+    if waste_backend == "visual":
+        warnings.append(
+            "Waste classifier is OpenCV visual occupancy (not a trained YOLO). "
+            "Train a waste model for higher accuracy."
         )
     if not face_engine_loaded:
         warnings.append("FACE ENGINE NOT LOADED — all transactions go to review")
@@ -115,4 +126,6 @@ def compute_readiness(
         "enrolled_count": enrolled_count,
         "plate_proxy_mode": plate_proxy_mode,
         "waste_model_missing": not waste_model_loaded,
+        "plate_backend": plate_backend or ("coco_proxy" if plate_proxy_mode else ""),
+        "waste_backend": waste_backend,
     }

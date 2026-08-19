@@ -113,11 +113,10 @@ class EventManager:
     @property
     def pipeline_ready(self) -> bool:
         """
-        True only when BOTH real models are loaded.
+        True when plate and waste detectors are both loaded.
 
-        No trained waste model means the system cannot honestly classify
-        waste, so no waste events are started. We never fabricate a
-        FOOD_PRESENT result.
+        Backends may be trained YOLO or the built-in OpenCV visual
+        estimators. The pipeline never fabricates a FOOD_PRESENT result.
         """
         return bool(
             self._plate_detector and self._plate_detector.is_loaded

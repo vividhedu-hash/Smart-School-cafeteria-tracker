@@ -4,15 +4,17 @@ Plate detector using Ultralytics YOLO.
 Loads a real trained YOLO model (not a mock).
 Returns bounding boxes and confidence scores.
 
-If the model weights file is missing, raises ModelNotFoundError with
-a clear message telling the user what to do.
+If the model weights file is missing, the default is a real OpenCV visual
+detector (circles / bright plate blobs / tray contours). That is not YOLO
+and is labelled `backend=visual` in runtime state.
 
 Optional "proxy mode" (explicit opt-in via config
-`models.plate.allow_coco_fallback: true`): when the trained weights are
-missing, a pretrained COCO yolov8n model detects tableware-like classes
-(bowl, cup, fork, knife, spoon, orange, dining table) as a stand-in.
-Proxy detections are NOT a trained plate detector — the engine flags all
-transactions produced this way for manual review.
+`models.plate.allow_coco_fallback: true`): a pretrained COCO yolov8n model
+detects tableware-like classes as a stand-in. Proxy detections are NOT a
+trained plate detector — the engine flags those transactions for review.
+
+Set `allow_visual_fallback: false` (and coco fallback false) to raise
+ModelNotFoundError instead of using the OpenCV backend.
 """
 from __future__ import annotations
 
@@ -76,8 +78,10 @@ class PlateDetector:
                         If given, only detections inside the ROI are returned.
         allow_coco_fallback: Explicit opt-in for PROXY MODE. If True and the
                         trained weights are missing, a pretrained COCO
-                        yolov8n stands in for the plate detector. Default
-                        False: missing weights raise ModelNotFoundError.
+                        yolov8n stands in for the plate detector.
+        allow_visual_fallback: Default True. If trained weights are missing,
+                        use the OpenCV visual plate detector so the live
+                        pipeline still runs.
     """
 
     def __init__(
@@ -88,6 +92,7 @@ class PlateDetector:
         device: str = "cpu",
         roi: Optional[dict] = None,
         allow_coco_fallback: bool = False,
+        allow_visual_fallback: bool = True,
     ) -> None:
         self._weights_path = Path(weights_path)
         self._confidence = confidence
@@ -95,34 +100,51 @@ class PlateDetector:
         self._device = device
         self._roi = roi
         self._allow_coco_fallback = allow_coco_fallback
+        self._allow_visual_fallback = allow_visual_fallback
         self._model = None
         self._loaded = False
         self._coco_fallback = False
         self.proxy_mode = False
+        self.visual_mode = False
+        self.backend = "none"
 
     def load(self) -> None:
         """
         Load the YOLO model. Called once at startup.
 
         Raises:
-            ModelNotFoundError: If weights are missing and proxy mode is
-                disabled (the default). We never silently pretend a COCO
-                bowl/cup detector is a trained plate detector.
+            ModelNotFoundError: If weights are missing and both visual and
+                COCO fallbacks are disabled. We never silently pretend a
+                COCO bowl/cup detector is a trained plate detector.
         """
         self._coco_fallback = False
         self.proxy_mode = False
+        self.visual_mode = False
+        self.backend = "none"
+        self._model = None
+
         if not self._weights_path.exists():
+            if self._allow_visual_fallback:
+                self.visual_mode = True
+                self.backend = "visual"
+                self._loaded = True
+                logger.info(
+                    "Plate detector: OpenCV visual backend (no trained YOLO at %s). "
+                    "Train a plate model later for higher accuracy.",
+                    self._weights_path,
+                )
+                return
             if not self._allow_coco_fallback:
                 raise ModelNotFoundError(
                     f"Plate detector model not found: {self._weights_path}\n"
                     "Action required: Train a plate detection model first.\n"
                     "  1. Capture plate images: python scripts/capture_dataset.py\n"
                     "  2. Label them (YOLO format) and place in data/datasets/plate/\n"
-                    "  3. Train via the dashboard Training page or scripts/train_waste_model.py\n"
-                    "(To demo with a generic COCO model instead, set "
-                    "models.plate.allow_coco_fallback: true in configs/config.yaml — "
-                    "this is clearly labelled as PROXY mode, not real plate detection; "
-                    "all transactions created in proxy mode are flagged for review.)"
+                    "  3. Train via the dashboard Training page or scripts/quickstart.py\n"
+                    "(Built-in OpenCV visual detection is on by default. To disable it "
+                    "set models.plate.allow_visual_fallback: false. To demo with a "
+                    "generic COCO model instead, set allow_coco_fallback: true — "
+                    "PROXY mode, not real plate detection; those transactions go to review.)"
                 )
             logger.warning(
                 "PLATE PROXY MODE: no trained model at %s — using pretrained "
@@ -133,6 +155,7 @@ class PlateDetector:
             )
             self._coco_fallback = True
             self.proxy_mode = True
+            self.backend = "coco_proxy"
 
         try:
             from ultralytics import YOLO
@@ -140,16 +163,29 @@ class PlateDetector:
                 self._model = YOLO("yolov8n.pt")
             else:
                 self._model = YOLO(str(self._weights_path))
-            # Warm-up inference on a dummy frame
             dummy = np.zeros((640, 640, 3), dtype=np.uint8)
             self._model.predict(dummy, device=self._device, verbose=False)
             self._loaded = True
+            self.backend = "coco_proxy" if self._coco_fallback else "yolo"
             logger.info(
-                "Plate detector loaded — weights=%s  device=%s",
+                "Plate detector loaded — backend=%s weights=%s device=%s",
+                self.backend,
                 self._weights_path,
                 self._device,
             )
         except Exception as exc:
+            if self._allow_visual_fallback:
+                logger.warning(
+                    "YOLO plate load failed (%s) — falling back to OpenCV visual detector.",
+                    exc,
+                )
+                self.visual_mode = True
+                self.backend = "visual"
+                self.proxy_mode = False
+                self._coco_fallback = False
+                self._model = None
+                self._loaded = True
+                return
             raise RuntimeError(f"Failed to load plate detector: {exc}") from exc
 
     @property
@@ -180,6 +216,12 @@ class PlateDetector:
         """
         if not self._loaded:
             raise RuntimeError("PlateDetector not loaded. Call load() first.")
+
+        if self.visual_mode:
+            from cafeteria.detection.visual import detect_plates_visual
+            return detect_plates_visual(
+                image, roi=self._roi, min_confidence=min(self._confidence, 0.40)
+            )
 
         h, w = image.shape[:2]
         fw = frame_width or w
