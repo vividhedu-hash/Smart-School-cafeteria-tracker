@@ -276,7 +276,11 @@ with tab_enroll:
     if st.session_state.enroll_step == "person_select":
         st.subheader("Step 1 — who are we scanning?")
         st.markdown(_wizard_html("person_select"), unsafe_allow_html=True)
-        st.caption("Pick someone on file, or add a name. The scan itself is guided — you just look at the prompts.")
+        st.caption(
+            "Pick someone on file, or add a name. If Chrome blocks the camera, "
+            "you can upload photos on the next step. Already enrolled? Skip this "
+            "and open **Live Monitor**."
+        )
 
         col_new, col_existing = st.columns(2)
 
@@ -402,6 +406,42 @@ with tab_enroll:
                 st.rerun()
             else:
                 st.info("We didn’t catch a still yet — look toward the light and we’ll try again.")
+
+        st.markdown("---")
+        st.markdown("### Camera blocked? Upload photos instead")
+        st.caption(
+            "Chrome is blocking this page’s camera (the red-X camera icon in the URL bar). "
+            "You can still enroll: drop 3 or more face photos below (front + left + right is enough), "
+            "or click that icon → Allow → then Retry camera in the scan box."
+        )
+        uploads = st.file_uploader(
+            "Face photos",
+            type=["jpg", "jpeg", "png", "webp"],
+            accept_multiple_files=True,
+            key=f"enroll_upload_{pid}",
+        )
+        if st.button("Save photos and finish enrollment", type="primary", key="btn_upload_enroll"):
+            if not uploads:
+                st.info("Add at least one photo first.")
+            else:
+                poses = ["front", "left", "right", "up", "down"]
+                saved = 0
+                for i, uf in enumerate(uploads):
+                    data = np.frombuffer(uf.getvalue(), np.uint8)
+                    img = cv2.imdecode(data, cv2.IMREAD_COLOR)
+                    if img is None:
+                        continue
+                    pose_key = poses[i % len(poses)]
+                    enrollment_mgr.save_image(pid, img, pose=pose_key)
+                    st.session_state.enroll_snaps.setdefault(pose_key, []).append(img.copy())
+                    saved += 1
+                if saved < 1:
+                    st.error("Those files could not be read as images.")
+                else:
+                    st.session_state.enroll_batch_saved = True
+                    st.session_state.enroll_embed_status = "pending"
+                    st.session_state.enroll_step = "embed"
+                    st.rerun()
 
         if st.button("← Back to people", key="back_to_select"):
             st.session_state.enroll_step = "person_select"

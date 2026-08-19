@@ -82,9 +82,26 @@
     #complete-panel h2 { color: #6ee7b7; font-size: 1.25rem; font-weight: 650; }
     #complete-panel p { color: #94a3b8; font-size: 0.9rem; line-height: 1.5; }
     #perm {
-      display: none; max-width: 360px; text-align: center; color: #94a3b8;
-      padding: 24px; line-height: 1.6;
+      display: none; max-width: 380px; text-align: left; color: #cbd5e1;
+      padding: 16px 18px; line-height: 1.55; font-size: 0.88rem;
+      background: #0f172a; border: 1px solid #334155; border-radius: 14px;
+      margin-top: 12px;
     }
+    #perm ol { margin: 8px 0 12px 18px; color: #94a3b8; }
+    #perm li { margin: 4px 0; }
+    #retry-cam {
+      pointer-events: auto;
+      cursor: pointer;
+      border: 0;
+      border-radius: 10px;
+      padding: 10px 16px;
+      font-weight: 650;
+      font-size: 0.9rem;
+      background: #38bdf8;
+      color: #0f172a;
+      width: 100%;
+    }
+    #retry-cam:hover { background: #7dd3fc; }
   </style>
 </head>
 <body>
@@ -317,10 +334,23 @@
         video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 720 } },
       });
     } catch (err) {
-      document.getElementById("perm").style.display = "none";
-      instrEl.textContent = "Camera needs a moment";
-      coachEl.textContent = "Allow camera access in the browser prompt, then refresh this page.";
+      const permEl = document.getElementById("perm");
+      permEl.style.display = "block";
+      instrEl.textContent = "Chrome blocked the camera";
+      coachEl.textContent = "You can still enroll — scroll down and upload photos, or allow the camera and tap Retry.";
       statusEl.textContent = "";
+      permEl.innerHTML =
+        "<strong>The address-bar camera icon has a red X.</strong>" +
+        "<ol>" +
+        "<li>Click that camera icon (right side of the URL bar).</li>" +
+        "<li>Choose <b>Allow</b> for 127.0.0.1.</li>" +
+        "<li>Tap <b>Retry camera</b> below — no need to reload the whole site.</li>" +
+        "</ol>" +
+        "<button id='retry-cam' type='button'>Retry camera</button>" +
+        "<p style='margin-top:10px;color:#94a3b8'>If it still fails, use <b>Upload photos instead</b> under this scan.</p>";
+      const btn = document.getElementById("retry-cam");
+      if (btn) btn.onclick = () => { permEl.style.display = "none"; init(); };
+      Streamlit.setFrameHeight(560);
       return;
     }
     document.getElementById("perm").style.display = "none";
