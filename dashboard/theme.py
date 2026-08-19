@@ -166,13 +166,20 @@ def status_strip(state_data: Optional[dict], engine_alive: bool, enrolled: int =
     fps = data.get("fps") or 0.0
     people = data.get("enrolled_persons", enrolled) or enrolled
 
+    def _model_label(task: str) -> str:
+        # [AI-CoLab: Verified by Antigravity] Explicit fallback label for visual OpenCV detectors vs YOLO models
+        value = active.get(task)
+        if value in (None, "", "none", "None"):
+            return "visual (built-in)"
+        return str(value)
+
     chips = [
         ("Engine", engine_value, engine_tone),
         ("Camera", camera_value, camera_tone),
         ("FPS", f"{float(fps):.1f}" if engine_alive else "—", ""),
         ("Pipeline", str(data.get("state", "—")) if engine_alive else "—", ""),
-        ("Plate model", str(active.get("plate") or "visual"), ""),
-        ("Waste model", str(active.get("waste") or "visual"), ""),
+        ("Plate model", _model_label("plate"), ""),
+        ("Waste model", _model_label("waste"), ""),
         ("Enrolled", f"{people} people", "ok" if people else "warn"),
     ]
 

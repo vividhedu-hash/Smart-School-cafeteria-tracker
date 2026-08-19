@@ -153,12 +153,24 @@ st.markdown(
     "face recognition, and food waste classification."
 )
 
-status_strip(state_data, engine_alive=engine_alive)
+def _enrolled_count() -> int:
+    # [AI-CoLab: Verified by Antigravity] Robust count of enrolled face profiles for top status strip
+    try:
+        from cafeteria.recognition.enrollment import EnrollmentManager
+        mgr = EnrollmentManager(
+            enrollment_dir=cfg.project_root / cfg.recognition.embedding_dir,
+        )
+        return sum(1 for pid in mgr.list_enrolled() if mgr.has_embedding(pid))
+    except Exception:
+        return 0
+
+
+status_strip(state_data, engine_alive=engine_alive, enrolled=_enrolled_count())
 
 # Engine status banner
 if not engine_alive:
     st.info(
-        "⏸️ **The inference engine is currently STOPPED.**\n\n"
+        "**The inference engine is currently STOPPED.**\n\n"
         "Click **▶ Start Engine**, then open **Live Monitor** for the live feed. "
         "Enrollment and dataset capture borrow the same camera, so you can leave "
         "the engine running while you work.",

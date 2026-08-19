@@ -304,7 +304,7 @@ class EnrollCamera:
             with self._lock:
                 self.jpeg = buf.tobytes()
         if borrowed:
-            time.sleep(0.08)  # engine writes raw frames ~5/s; don't spin
+            time.sleep(0.03)  # engine republishes ~5/s; a light yield is enough
 
     # ── Overlay / coaching ───────────────────────────────────────────────────
 

@@ -240,7 +240,7 @@ def live_view() -> None:
         st.session_state.pop("engine_started_at", None)
         status_strip({}, engine_alive=False)
         st.info(
-            "⏸️ **The engine is stopped, so the camera is off.**\n\n"
+            "**The engine is stopped, so the camera is off.**\n\n"
             "Start it to get a live feed and face matching. It releases the camera "
             "on its own about a minute after you leave this page.",
             icon="⏸️",
