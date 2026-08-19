@@ -25,6 +25,10 @@ st.set_page_config(page_title="Transactions", page_icon="📋", layout="wide")
 from auth_gate import require_login
 require_login()
 
+from theme import inject_css
+
+inject_css()
+
 st.title("📋 Transactions")
 
 from cafeteria.config.settings import load_settings
@@ -136,7 +140,7 @@ for tx in transactions:
 
 df = pd.DataFrame(rows)
 st.markdown(f"**{len(rows)} transaction(s)**")
-st.dataframe(df, use_container_width=True, height=500)
+st.dataframe(df, width="stretch", height=500)
 
 # ── Image viewer ──────────────────────────────────────────────────────────────
 st.markdown("---")
@@ -150,7 +154,7 @@ if selected_tx_id:
         col1, col2 = st.columns([2, 3])
         with col1:
             if tx.event_image_path and Path(tx.event_image_path).exists():
-                st.image(tx.event_image_path, caption="Event Evidence", use_container_width=True)
+                st.image(tx.event_image_path, caption="Event Evidence", width="stretch")
             else:
                 st.info("No image saved.")
         with col2:

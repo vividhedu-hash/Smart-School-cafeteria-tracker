@@ -24,6 +24,10 @@ st.set_page_config(page_title="Review Queue", page_icon="🔍", layout="wide")
 from auth_gate import require_login
 require_login()
 
+from theme import inject_css
+
+inject_css()
+
 st.title("🔍 Review Queue")
 
 from cafeteria.config.settings import load_settings
@@ -92,7 +96,7 @@ for entry in unresolved:
 
         with img_col:
             if entry.event_image_path and Path(entry.event_image_path).exists():
-                st.image(entry.event_image_path, caption="Event Image", use_container_width=True)
+                st.image(entry.event_image_path, caption="Event Image", width="stretch")
             else:
                 st.markdown("🖼️ *Image not available*")
 
