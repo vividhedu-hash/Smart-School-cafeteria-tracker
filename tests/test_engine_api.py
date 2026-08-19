@@ -66,6 +66,56 @@ def test_engine_api_health_and_state(tmp_path):
         server.server_close()
 
 
+def test_raw_endpoint_serves_the_unannotated_frame(tmp_path):
+    """Enrollment borrows /raw.jpg so it never needs its own camera handle."""
+    annotated = tmp_path / "latest.jpg"
+    annotated.write_bytes(b"\xff\xd8\xffANNOTATED")
+    raw = tmp_path / "latest_raw.jpg"
+    raw.write_bytes(b"\xff\xd8\xffRAW")
+
+    server = start_engine_api(
+        host="127.0.0.1",
+        port=0,
+        get_state=lambda: {"state": "IDLE"},
+        frame_path=annotated,
+        raw_frame_path=raw,
+        heartbeat_path=tmp_path / "heartbeat",
+        commands_path=tmp_path / "commands.json",
+    )
+    port = server.server_address[1]
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/raw.jpg", timeout=2) as resp:
+            assert resp.read() == b"\xff\xd8\xffRAW"
+            assert resp.headers["Content-Type"] == "image/jpeg"
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/frame.jpg", timeout=2) as resp:
+            assert resp.read() == b"\xff\xd8\xffANNOTATED"
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_raw_endpoint_falls_back_to_the_annotated_frame(tmp_path):
+    """An engine built before raw frames existed still answers /raw.jpg."""
+    annotated = tmp_path / "latest.jpg"
+    annotated.write_bytes(b"\xff\xd8\xffONLY")
+
+    server = start_engine_api(
+        host="127.0.0.1",
+        port=0,
+        get_state=lambda: {"state": "IDLE"},
+        frame_path=annotated,
+        heartbeat_path=tmp_path / "heartbeat",
+        commands_path=tmp_path / "commands.json",
+    )
+    port = server.server_address[1]
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/raw.jpg", timeout=2) as resp:
+            assert resp.read() == b"\xff\xd8\xffONLY"
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
 def test_engine_api_rejects_missing_token(tmp_path):
     frame = tmp_path / "latest.jpg"
     frame.write_bytes(b"\xff\xd8\xff")

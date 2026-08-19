@@ -43,6 +43,40 @@ FILL_MIN = 0.25
 FILL_MAX = 2.20
 
 
+def capture_decision(
+    # [AI-CoLab: Verified by Antigravity] Pure decision function for adaptive auto-snap & manual camera enrollment
+    *,
+    manual: bool,
+    aligned_hold_seconds: Optional[float],
+    face_visible: bool,
+    face_seen_for: Optional[float],
+    since_last_snap: float,
+) -> Optional[str]:
+    """
+    Decide whether to keep this frame, and why.
+
+    Args:
+        manual:               Operator pressed the shutter.
+        aligned_hold_seconds: How long the face has been inside the oval,
+                              None when it is not (or no longer) aligned.
+        face_visible:         A face is in frame right now.
+        face_seen_for:        Seconds since a face was first seen at all.
+        since_last_snap:      Seconds since the previous capture.
+
+    Returns:
+        ``"manual"``, ``"aligning"``, ``"relaxed"``, or None to keep waiting.
+    """
+    if manual:
+        return "manual"
+    if since_last_snap < SNAP_GAP:
+        return None
+    if aligned_hold_seconds is not None and aligned_hold_seconds >= HOLD_SECONDS:
+        return "aligning"
+    if face_visible and face_seen_for is not None and face_seen_for >= RELAX_AFTER_SECONDS:
+        return "relaxed"
+    return None
+
+
 @dataclass
 class EnrollStatus:
     """Everything the Streamlit page needs to render one preview tick."""
@@ -225,20 +259,13 @@ class EnrollCamera:
             else:
                 good_since = None
 
-            held_long_enough = good_since is not None and now - good_since >= HOLD_SECONDS
-            relaxed = (
-                first_face_at is not None
-                and now - first_face_at >= RELAX_AFTER_SECONDS
+            reason = capture_decision(
+                manual=manual,
+                aligned_hold_seconds=(now - good_since) if good_since is not None else None,
+                face_visible=face_found,
+                face_seen_for=(now - first_face_at) if first_face_at is not None else None,
+                since_last_snap=now - last_snap,
             )
-            gap_ok = now - last_snap >= SNAP_GAP
-
-            reason = None
-            if manual:
-                reason = "manual"
-            elif held_long_enough and gap_ok:
-                reason = "aligning"
-            elif relaxed and face_found and gap_ok:
-                reason = "relaxed"
 
             if reason is not None:
                 last_snap = now

@@ -20,9 +20,10 @@ os.environ.setdefault("OPENCV_FOR_THREADS_NUM", "1")
 
 import pytest
 
-# Ensure src/ is importable
+# Ensure src/ and dashboard/ are importable
 _project_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_project_root / "src"))
+sys.path.insert(0, str(_project_root / "dashboard"))
 
 # Override project root for tests
 os.environ["CAFETERIA_CONFIG"] = str(_project_root / "configs" / "config.yaml")
