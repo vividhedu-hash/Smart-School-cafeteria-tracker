@@ -22,6 +22,59 @@ from cafeteria.utils.logging import get_logger, EventCode, log_event
 logger = get_logger("training.trainer")
 
 
+def _epoch_payload(yolo_trainer) -> dict:
+    """
+    Best-effort snapshot of an in-flight Ultralytics epoch.
+
+    Ultralytics exposes different attributes per task and version, so every
+    read is guarded — progress reporting must never break a training run.
+    """
+    payload: dict = {}
+    try:
+        payload["epoch"] = int(getattr(yolo_trainer, "epoch", 0) or 0) + 1
+        payload["epochs"] = int(getattr(yolo_trainer, "epochs", 0) or 0)
+    except (TypeError, ValueError):
+        pass
+
+    metrics: dict = {}
+    for key, value in dict(getattr(yolo_trainer, "metrics", None) or {}).items():
+        try:
+            metrics[str(key)] = round(float(value), 5)
+        except (TypeError, ValueError):
+            continue
+    if metrics:
+        payload["metrics"] = metrics
+
+    loss = getattr(yolo_trainer, "tloss", None)
+    if loss is not None:
+        try:
+            payload["loss"] = round(float(loss.mean()), 5)
+        except (AttributeError, TypeError, ValueError):
+            try:
+                payload["loss"] = round(float(loss), 5)
+            except (TypeError, ValueError):
+                pass
+    return payload
+
+
+def _attach_progress(model, progress_callback: Optional[Callable[[dict], None]]) -> None:
+    """Forward per-epoch progress to the caller, if it asked for it."""
+    if progress_callback is None:
+        return
+
+    def _emit(yolo_trainer) -> None:
+        try:
+            progress_callback(_epoch_payload(yolo_trainer))
+        except Exception as exc:  # a reporting bug must not kill training
+            logger.debug("Progress callback failed: %s", exc)
+
+    for event in ("on_train_epoch_end", "on_fit_epoch_end"):
+        try:
+            model.add_callback(event, _emit)
+        except Exception as exc:
+            logger.debug("Could not attach %s callback: %s", event, exc)
+
+
 class TrainingResult:
     """Results from a completed training run."""
 
@@ -132,6 +185,7 @@ class WasteModelTrainer:
             try:
                 from ultralytics import YOLO
                 model = YOLO(base_model)
+                _attach_progress(model, progress_callback)
 
                 # Use YOLO's built-in training
                 results = model.train(
@@ -238,6 +292,7 @@ class PlateModelTrainer:
         batch: int = 16,
         version: str,
         data_yaml: str,
+        progress_callback: Optional[Callable[[dict], None]] = None,
     ) -> TrainingResult:
         """
         Train plate detector from a YOLO detection dataset.
@@ -249,6 +304,7 @@ class PlateModelTrainer:
             batch:      Batch size.
             version:    Version string.
             data_yaml:  Path to data.yaml file.
+            progress_callback: Called after each epoch with a progress dict.
 
         Returns:
             TrainingResult.
@@ -260,6 +316,7 @@ class PlateModelTrainer:
         try:
             from ultralytics import YOLO
             model = YOLO(base_model)
+            _attach_progress(model, progress_callback)
             results = model.train(
                 data=data_yaml,
                 epochs=epochs,
