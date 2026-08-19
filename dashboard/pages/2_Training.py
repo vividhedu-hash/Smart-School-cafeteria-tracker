@@ -198,7 +198,7 @@ def _has_face(bgr: np.ndarray) -> bool:
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
-from dashboard.components.face_capture.face_capture_widget import face_capture_component
+from dashboard.enroll_cam import start_enroll_camera, stop_enroll_camera, TARGET_FRAMES
 
 
 # ── Pose configuration ────────────────────────────────────────────────────────
@@ -277,8 +277,8 @@ with tab_enroll:
         st.subheader("Step 1 — who are we scanning?")
         st.markdown(_wizard_html("person_select"), unsafe_allow_html=True)
         st.caption(
-            "Pick someone, then look into the oval — we auto-capture in a few seconds "
-            "(Lenskart-style). Already enrolled? Open **Live Monitor**."
+            "Pick someone, then look into the oval. Enrollment uses the same "
+            "webcam as Live Monitor (not Chrome). Walk-past recognition is InsightFace."
         )
 
         col_new, col_existing = st.columns(2)
@@ -373,38 +373,42 @@ with tab_enroll:
         st.subheader(f"Step 2 — scan **{pname}**")
         st.markdown(_wizard_html("capture"), unsafe_allow_html=True)
         st.caption(
-            "Fit your face in the oval and look at the camera. "
-            "We snap automatically when it lines up — about 2–3 seconds, no turning left/right."
+            "This uses the **same webcam as Live Monitor** (Python/OpenCV), not Chrome’s camera. "
+            "Fit your face in the oval — we snap automatically in a few seconds. "
+            "Walk-past identity on Live Monitor is still InsightFace ArcFace."
         )
 
-        result = face_capture_component(
-            person_name=pname,
-            key=f"fc_lenskart_{pid}",
-            height=720,
-        )
+        cam_src = cfg.camera.source if isinstance(cfg.camera.source, int) else 0
+        session_key = f"enroll_{pid}"
+        cam = start_enroll_camera(session_key, source=int(cam_src))
+        jpeg, hint, n_caps, cam_done, cam_err = cam.snapshot()
 
-        if (
-            isinstance(result, dict)
-            and result.get("status") == "complete"
-            and not st.session_state.get("enroll_batch_saved")
-        ):
-            captures = result.get("captures") or []
+        if cam_err:
+            st.warning(cam_err)
+        else:
+            st.markdown(f"**{hint}**")
+            if jpeg:
+                st.image(jpeg, use_container_width=False, width=420)
+            else:
+                st.info("Opening the webcam…")
+            st.progress(min(n_caps / TARGET_FRAMES, 1.0), text=f"{n_caps} / {TARGET_FRAMES}")
+
+        if cam_done and not st.session_state.get("enroll_batch_saved"):
             saved = 0
-            for cap in captures:
-                img_bgr = _b64_to_bgr(cap.get("data") or cap.get("image_b64") or "")
-                if img_bgr is None:
-                    continue
-                pose_key = cap.get("pose") or "front"
-                enrollment_mgr.save_image(pid, img_bgr, pose=pose_key)
-                st.session_state.enroll_snaps.setdefault(pose_key, []).append(img_bgr.copy())
+            for img in cam.take_captures():
+                enrollment_mgr.save_image(pid, img, pose="front")
+                st.session_state.enroll_snaps.setdefault("front", []).append(img.copy())
                 saved += 1
+            stop_enroll_camera(session_key)
             st.session_state.enroll_batch_saved = True
             if saved >= 1:
                 st.session_state.enroll_embed_status = "pending"
                 st.session_state.enroll_step = "embed"
                 st.rerun()
-            else:
-                st.info("We didn’t catch a still yet — look toward the light and we’ll try again.")
+
+        if not cam_done and not cam_err:
+            time.sleep(0.12)
+            st.rerun()
 
         st.markdown("---")
         st.markdown("### Camera blocked? Upload photos instead")
@@ -439,6 +443,7 @@ with tab_enroll:
                     st.rerun()
 
         if st.button("← Back to people", key="back_to_select"):
+            stop_enroll_camera(f"enroll_{pid}")
             st.session_state.enroll_step = "person_select"
             st.rerun()
 
