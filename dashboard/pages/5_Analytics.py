@@ -25,6 +25,10 @@ st.set_page_config(page_title="Analytics", page_icon="📊", layout="wide")
 from auth_gate import require_login
 require_login()
 
+from theme import inject_css
+
+inject_css()
+
 st.title("📊 Analytics")
 
 from cafeteria.config.settings import load_settings
@@ -105,7 +109,7 @@ else:
                 plot_bgcolor="rgba(0,0,0,0)",
                 font_color="#e2e8f0",
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
         else:
             st.info("No waste-class counts yet.")
 
@@ -128,7 +132,7 @@ else:
                 plot_bgcolor="rgba(0,0,0,0)",
                 font_color="#e2e8f0",
             )
-            st.plotly_chart(fig2, use_container_width=True)
+            st.plotly_chart(fig2, width="stretch")
         else:
             st.info("No dated events yet.")
 
@@ -149,7 +153,7 @@ else:
             plot_bgcolor="rgba(0,0,0,0)",
             font_color="#e2e8f0",
         )
-        st.plotly_chart(fig3, use_container_width=True)
+        st.plotly_chart(fig3, width="stretch")
     else:
         st.info("No waste events with identities yet.")
 
@@ -171,7 +175,7 @@ else:
                 font_color="#e2e8f0",
                 showlegend=False,
             )
-            st.plotly_chart(fig4, use_container_width=True)
+            st.plotly_chart(fig4, width="stretch")
         else:
             st.info("No status data yet.")
 
@@ -192,6 +196,6 @@ else:
                 plot_bgcolor="rgba(0,0,0,0)",
                 font_color="#e2e8f0",
             )
-            st.plotly_chart(fig5, use_container_width=True)
+            st.plotly_chart(fig5, width="stretch")
         else:
             st.info("No latency data yet.")

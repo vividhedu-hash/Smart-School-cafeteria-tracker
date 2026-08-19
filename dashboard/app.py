@@ -57,60 +57,10 @@ def _init():
 
 cfg = _init()
 
-# ── Custom CSS ───────────────────────────────────────────────────────────────
-st.markdown("""
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
-html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
+# ── Shared visual language ───────────────────────────────────────────────────
+from theme import inject_css, status_strip
 
-[data-testid="stSidebar"] {
-    background: linear-gradient(180deg, #0f172a 0%, #1e293b 100%);
-}
-[data-testid="stSidebar"] .stMarkdown h1,
-[data-testid="stSidebar"] .stMarkdown h2,
-[data-testid="stSidebar"] .stMarkdown h3 { color: #38bdf8; }
-
-.state-badge {
-    display: inline-block; padding: 4px 12px; border-radius: 20px;
-    font-weight: 700; font-size: 0.9rem; letter-spacing: 0.05em;
-}
-.status-ok    { background: #064e3b; color: #34d399; border: 1px solid #059669; }
-.status-warn  { background: #451a03; color: #fb923c; border: 1px solid #ea580c; }
-.status-error { background: #450a0a; color: #f87171; border: 1px solid #dc2626; }
-
-/* Step cards */
-.step-card {
-    background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
-    border: 1px solid #334155; border-radius: 16px;
-    padding: 20px 24px; margin: 8px 0;
-    transition: border-color 0.2s, box-shadow 0.2s;
-}
-.step-card:hover {
-    border-color: #3b82f6;
-    box-shadow: 0 0 24px rgba(59,130,246,0.15);
-}
-.step-card-num {
-    font-size: 2rem; font-weight: 800;
-    background: linear-gradient(135deg, #3b82f6, #8b5cf6);
-    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-    line-height: 1;
-}
-.step-card-title { font-size: 1.05rem; font-weight: 600; color: #e2e8f0; margin: 6px 0 4px; }
-.step-card-desc  { font-size: 0.85rem; color: #94a3b8; line-height: 1.5; }
-
-/* Nav cards */
-.nav-card {
-    background: linear-gradient(135deg, #1e293b, #0f172a);
-    border: 1px solid #334155; border-radius: 12px;
-    padding: 16px; text-align: center;
-    transition: all 0.2s;
-}
-.nav-card:hover { border-color: #6366f1; box-shadow: 0 0 20px rgba(99,102,241,0.2); }
-.nav-card-icon  { font-size: 2rem; margin-bottom: 8px; }
-.nav-card-title { font-weight: 600; color: #e2e8f0; font-size: 0.9rem; }
-.nav-card-desc  { color: #64748b; font-size: 0.78rem; margin-top: 4px; }
-</style>
-""", unsafe_allow_html=True)
+inject_css()
 
 # ── Sidebar ──────────────────────────────────────────────────────────────────
 with st.sidebar:
@@ -121,16 +71,19 @@ with st.sidebar:
     st.markdown("**Engine Controls**")
     if engine_alive:
         st.markdown('<span class="state-badge status-ok">● ENGINE RUNNING</span>', unsafe_allow_html=True)
-        st.caption("Camera LED is on. Stop Engine (or leave Live Monitor) to release it.")
-        if st.button("⏹ Stop Engine", type="primary", use_container_width=True):
+        st.caption("Camera LED is on. Stop the engine to release it immediately.")
+        if st.button("⏹ Stop Engine", type="primary", width="stretch"):
             _stop_engine()
             st.success("Engine terminated.")
             time.sleep(0.5)
             st.rerun()
     else:
         st.markdown('<span class="state-badge status-error">● ENGINE STOPPED</span>', unsafe_allow_html=True)
-        st.caption("Starts the camera. Leave Live Monitor and it turns off within a few seconds.")
-        if st.button("▶ Start Engine", use_container_width=True):
+        st.caption(
+            "Starts the camera. It releases itself about a minute after you leave "
+            "Live Monitor and the enrollment scanner."
+        )
+        if st.button("▶ Start Engine", width="stretch"):
             _start_engine()
             st.success("Engine starting…")
             time.sleep(1)
@@ -188,7 +141,10 @@ with st.sidebar:
         st.markdown(f"**Enrolled:** `{enrolled}` person(s)")
 
     st.markdown("---")
-    st.caption("Camera is on only while Live Monitor is open.")
+    st.caption(
+        "The camera runs while Live Monitor or the enrollment scanner is open. "
+        "Both share the same feed — starting one no longer stops the other."
+    )
 
 # ── Home page content ─────────────────────────────────────────────────────────
 st.title("🍽️ Smart Cafeteria Waste Tracker")
@@ -197,19 +153,26 @@ st.markdown(
     "face recognition, and food waste classification."
 )
 
+status_strip(state_data, engine_alive=engine_alive)
+
 # Engine status banner
 if not engine_alive:
     st.info(
         "⏸️ **The inference engine is currently STOPPED.**\n\n"
-        "Click **▶ Start Engine** then open **Live Monitor** to use the camera. "
-        "The camera turns off when you leave Live Monitor so Training can use it.",
+        "Click **▶ Start Engine**, then open **Live Monitor** for the live feed. "
+        "Enrollment and dataset capture borrow the same camera, so you can leave "
+        "the engine running while you work.",
         icon="ℹ️",
     )
     if st.button("▶ Start Engine Now"):
         _start_engine()
         st.rerun()
 else:
-    st.success("✅ Engine online — camera is on. Open Live Monitor, or Stop Engine to free the webcam.", icon="✅")
+    st.success(
+        "✅ Engine online — camera is on. Live Monitor, face enrollment, and dataset "
+        "capture all share this feed.",
+        icon="✅",
+    )
 
 # ── System Readiness (honest status — no fake AI) ─────────────────────────────
 st.markdown("### 🩺 System Readiness")
@@ -351,11 +314,11 @@ steps_html = """
 
   <div class="step-card">
     <div class="step-card-num">02</div>
-    <div class="step-card-title">Enroll faces (optional)</div>
+    <div class="step-card-title">Enroll faces</div>
     <div class="step-card-desc">
-      Go to <b>🧠 Training → Face Enrollment</b>.<br>
-      Follow the pose guide. Unknown faces still create
-      events — they land in the Review Queue.
+      Go to <b>🧠 Training → Face Enrollment</b>. The scan is automatic —
+      there is a manual shutter and a photo upload if you would rather not
+      wait. Unknown faces still create events; they land in the Review Queue.
     </div>
   </div>
 
@@ -373,9 +336,9 @@ steps_html = """
     <div class="step-card-num">04</div>
     <div class="step-card-title">Train YOLO (optional)</div>
     <div class="step-card-desc">
-      Upload cafeteria photos on <b>🧠 Training</b> and click
-      <b>START TRAINING</b> to replace the built-in visual
-      detectors with a fine-tuned YOLOv8 model.
+      Capture tray photos straight from the camera on <b>🧠 Training</b>, then
+      hit <b>Start training</b> and watch the epochs stream in. Activating a
+      version hot-swaps the running engine.
     </div>
   </div>
 
