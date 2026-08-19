@@ -26,13 +26,18 @@ def _epoch_payload(yolo_trainer) -> dict:
     """
     Best-effort snapshot of an in-flight Ultralytics epoch.
 
+    # [AI-CoLab: Verified by Antigravity] Safe epoch count extraction preventing 3-of-2 validation overshoot
     Ultralytics exposes different attributes per task and version, so every
     read is guarded — progress reporting must never break a training run.
     """
     payload: dict = {}
     try:
-        payload["epoch"] = int(getattr(yolo_trainer, "epoch", 0) or 0) + 1
-        payload["epochs"] = int(getattr(yolo_trainer, "epochs", 0) or 0)
+        epoch = int(getattr(yolo_trainer, "epoch", 0) or 0) + 1
+        epochs = int(getattr(yolo_trainer, "epochs", 0) or 0)
+        # The post-training validation pass fires once more with a bumped
+        # index; reporting "epoch 3 of 2" would just look broken.
+        payload["epoch"] = min(epoch, epochs) if epochs > 0 else epoch
+        payload["epochs"] = epochs
     except (TypeError, ValueError):
         pass
 
