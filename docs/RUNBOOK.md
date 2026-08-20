@@ -12,7 +12,8 @@ word in a box like **▶ Start Engine**, it's a button you'll find on screen.
    the tray-return spot (same position every day — the AI was trained on
    that exact view).
 2. Double-click **`Start_Cafeteria_Tracker.command`** in the project folder.
-   (Alternative for a terminal user: `python run.py` from the project folder.)
+   (Alternative for a terminal user: `./run.sh` or `python run.py` from the
+   project folder.)
 3. A terminal window opens and, after a few seconds, your web browser opens
    the dashboard at **http://localhost:8501**. This is a local page — it works
    without internet.
@@ -24,10 +25,12 @@ word in a box like **▶ Start Engine**, it's a button you'll find on screen.
 5. Open the **Live Monitor** page (left sidebar) and confirm you can see the
    camera picture.
 
-**Important:** keep the dashboard browser tab open while the system should be
-watching. If no dashboard tab is open for about 30 seconds, the engine shuts
-itself down automatically and releases the camera (the camera light goes
-off). This is normal — just click **▶ Start Engine** when you come back.
+**Important:** leave the terminal that launched `./run.sh` open. That process
+keeps the engine alive. Ctrl+C stops the engine and the dashboard together
+and turns the camera light off. If you started the engine from the website
+instead (▶ Start Engine) and then leave Live Monitor, it still releases the
+camera after about a minute on its own — click **▶ Start Engine** when you
+come back.
 
 ## 2. Daily shutdown
 

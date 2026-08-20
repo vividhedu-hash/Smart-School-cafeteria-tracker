@@ -53,6 +53,9 @@ gpu = [
     # pip install onnxruntime-gpu
 ]
 
+[project.scripts]
+cafeteria = "cafeteria.launcher:main"
+
 [tool.setuptools.packages.find]
 where = ["src"]
 

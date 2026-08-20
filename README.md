@@ -77,15 +77,34 @@ The pipeline is live on first start: plate + waste use built-in OpenCV
 visual analysis; faces use InsightFace. Train YOLO later if you want.
 
 ```bash
-# Terminal 1: Start the inference engine
-python -m cafeteria.main
-
-# Terminal 2: Start the dashboard
-streamlit run dashboard/app.py
+./run.sh
 ```
 
-Or one command: `python run.py` then click **▶ Start Engine** and open
-**Live Monitor**. Dashboard: http://localhost:8501
+That one command creates `.venv` if needed, starts the inference engine and
+the dashboard together, and opens http://localhost:8501. Log in with the
+operator PIN, then open **Live Monitor**. Ctrl+C in that terminal stops
+everything and releases the camera.
+
+Same thing, other spellings:
+
+```bash
+python run.py                          # from the project folder
+python -m cafeteria.launcher           # after `pip install -e .`
+```
+
+macOS: double-click `Start_Cafeteria_Tracker.command`.
+
+```bash
+python run.py --stop                   # engine + dashboard off
+python run.py --dashboard-only         # UI only, camera stays off
+```
+
+Two-terminal start is still available if you want them separate:
+
+```bash
+python -m cafeteria.main               # Terminal 1: engine
+streamlit run dashboard/app.py         # Terminal 2: dashboard
+```
 
 ### 3. Train YOLO models (optional, higher accuracy)
 
@@ -148,7 +167,7 @@ Data requirements it checks for you:
   review queue.
 
 After training, it prints whether the live pipeline is fully active and the
-next step (`python run.py` to start engine + dashboard together).
+next step (`./run.sh` to start engine + dashboard together).
 
 ---
 

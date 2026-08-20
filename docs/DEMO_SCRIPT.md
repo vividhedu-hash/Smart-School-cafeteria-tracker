@@ -19,9 +19,9 @@ Do these in order. Total time: ~10 minutes, leaving buffer to fix problems.
    Test by starting the engine once and confirming the Live Monitor shows
    frames.
 3. **Start everything.** Double-click `Start_Cafeteria_Tracker.command` (or
-   run `python run.py` from the project folder). The dashboard opens at
-   http://localhost:8501 automatically. This does NOT need wifi — everything
-   is localhost.
+   run `./run.sh` / `python run.py` from the project folder). The engine and
+   dashboard start together and the browser opens at http://localhost:8501.
+   This does NOT need wifi — everything is localhost.
 4. **Verify System Readiness.** On the dashboard home page, the
    "🩺 System Readiness" panel must show READY for: Plate model, Waste model,
    Face engine, Enrolled people, and Camera. If Plate or Waste shows MISSING,
@@ -36,9 +36,10 @@ Do these in order. Total time: ~10 minutes, leaving buffer to fix problems.
 7. **Empty the Review Queue** (resolve or reject anything left over) and note
    the current Total Transactions count on the home page — you'll point at it
    going up by exactly one during the demo.
-8. **Keep the dashboard tab open.** The engine auto-shuts down after ~30
-   seconds if no browser tab is open (this is a feature — it releases the
-   camera). During the demo, never close the browser.
+8. **Keep the launcher terminal open.** `./run.sh` holds the engine up until
+   you press Ctrl+C. If you started the engine from the website instead, it
+   auto-shuts down about a minute after you leave Live Monitor (that releases
+   the camera). During the demo, never close the browser.
 9. **Do one full dry run.** Show the food plate, confirm one transaction
    appears. If it works once, it will work on stage.
 10. **Backup plan.** If the camera or machine fails on stage: you have the

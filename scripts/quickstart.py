@@ -219,7 +219,7 @@ def print_final_status(cfg) -> None:
     if pipeline_active:
         print("\n  ✅ LIVE PIPELINE WILL BE FULLY ACTIVE.")
         print("     A running engine hot-swaps within ~5 s; otherwise start everything:")
-        print("       python run.py")
+        print("       ./run.sh")
         print("     Then put a plate with food in front of the camera and watch")
         print("     the Live Monitor + Transactions pages.")
     else:
