@@ -29,6 +29,20 @@ def _table_with_plate(food: bool = False, coverage: str = "empty") -> np.ndarray
     return img
 
 
+def test_visual_detects_white_plate_on_720p_frame():
+    img = np.full((720, 1280, 3), 38, dtype=np.uint8)
+    img[:] = (38, 42, 48)
+    cv2.circle(img, (640, 520), 140, (228, 228, 232), -1)
+    cv2.circle(img, (640, 520), 140, (170, 170, 176), 5)
+    dets = detect_plates_visual(
+        img, roi={"x1": 0.05, "y1": 0.40, "x2": 0.95, "y2": 1.0}, min_confidence=0.35
+    )
+    assert dets, "expected a plate on a 720p frame after downscale cascade"
+    cx, cy = dets[0].center
+    assert 520 < cx < 760
+    assert 400 < cy < 640
+
+
 def test_visual_detects_white_plate_on_dark_table():
     img = _table_with_plate()
     dets = detect_plates_visual(

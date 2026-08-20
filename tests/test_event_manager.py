@@ -70,6 +70,7 @@ def make_config():
         recognition=SimpleNamespace(
             frames_to_vote=2,
             minimum_face_size=40,
+            similarity_threshold=0.52,
         ),
     )
 
@@ -253,3 +254,39 @@ def test_force_reset_clears_duplicate_guard(tmp_path):
     em.force_reset()
     assert sm.state == State.IDLE
     assert em._awaiting_plate_absence is False
+
+
+class BoomFaceEngine:
+    is_loaded = True
+
+    def get_largest_face(self, *args, **kwargs):
+        raise AssertionError("main thread must not run InsightFace")
+
+
+def test_live_tracker_identity_commits_without_inline_face(tmp_path):
+    """Always-on lock is enough — do not stall 4s on a second InsightFace pass."""
+    plate = StubPlateDetector()
+    waste = StubWasteDetector(label="HIGH_WASTE", confidence=0.9)
+    em, sm = make_manager(plate=plate, waste=waste, tmp_path=tmp_path)
+    em._face_engine = BoomFaceEngine()
+    em._matcher._embeddings["person_01"] = np.zeros(512)
+    em._matcher._names["person_01"] = "Ada"
+    live = {
+        "person_id": "person_01",
+        "person_name": "Ada",
+        "similarity": 0.81,
+        "is_known": True,
+        "bbox": [20, 20, 90, 90],
+        "approaching": False,
+        "infer_id": 4,
+    }
+    event = None
+    for _ in range(40):
+        event = em.process_frame(make_frame(), [make_frame()], live_face=live)
+        if event is not None:
+            break
+    assert event is not None
+    assert event.face_match is not None
+    assert event.face_match.is_known is True
+    assert event.face_match.person_id == "person_01"
+    assert event.status == "AUTO_CONFIRMED"

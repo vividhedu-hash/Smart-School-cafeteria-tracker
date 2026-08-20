@@ -21,7 +21,7 @@ def test_load_settings_reads_project_yaml_not_cwd_defaults(tmp_path, monkeypatch
         assert "configs" in cfg.config_source.as_posix()
         # Values that differ from pydantic defaults in settings.py
         assert cfg.recognition.model_pack == "buffalo_s"
-        assert list(cfg.recognition.det_size) == [480, 480]
+        assert list(cfg.recognition.det_size) == [320, 320]
         assert cfg.recognition.similarity_threshold == 0.52
         assert cfg.recognition.minimum_face_size == 24
         assert cfg.recognition.identify_face_size == 48

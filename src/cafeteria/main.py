@@ -42,6 +42,7 @@ from cafeteria.recognition.matcher import EmbeddingMatcher, match_field
 from cafeteria.recognition.enrollment import EnrollmentManager
 from cafeteria.recognition.live_match import (
     box_iou,
+    face_search_crop,
     face_size_px,
     persist_bbox,
     scale_bbox_to_frame,
@@ -68,6 +69,7 @@ _shutdown = False
 # macOS hands one process exclusive camera access, so the dashboard borrows
 # these instead of opening a second capture device.
 RAW_FRAME_INTERVAL_SECONDS = 0.2
+DASHBOARD_FRAME_INTERVAL_SECONDS = 1.0 / 12.0  # encode JPEG ~12 fps, not every grab
 
 
 def handle_signal(sig, frame):
@@ -240,6 +242,7 @@ def run_engine() -> None:
     last_registry_check = 0.0
     last_embedding_reload = 0.0
     last_raw_write = 0.0
+    last_dash_write = 0.0
     current_plate_det = None
     current_waste_result = None
     current_face_match = None
@@ -263,18 +266,24 @@ def run_engine() -> None:
     _face_frame_lock = threading.Lock()
     _face_thread_stop = threading.Event()
     _held_bbox = None
-    _held_missing = 0
+    _held_until = 0.0
     _held_identity: dict | None = None
+    _face_infer_id = 0
+    _last_face_infer_at = 0.0
 
     def _face_inference_worker():
-        """InsightFace walk-past lock: persist bbox, identify when the face is large enough."""
+        """InsightFace walk-past lock: gated search, persist bbox, identify when large."""
         nonlocal _face_result, _face_inference_frame
-        nonlocal _held_bbox, _held_missing, _held_identity
+        nonlocal _held_bbox, _held_until, _held_identity, _face_infer_id, _last_face_infer_at
         lock_min = int(getattr(cfg.recognition, "minimum_face_size", 24) or 24)
         identify_min = int(getattr(cfg.recognition, "identify_face_size", 48) or 48)
         max_hold = int(getattr(cfg.recognition, "bbox_hold_frames", 12) or 12)
-        infer_max = int(getattr(cfg.recognition, "infer_max_width", 1280) or 1280)
-        # [AI-CoLab: Cursor] Face worker is a hot path — no file/NDJSON debug probes here.
+        hold_s = float(getattr(cfg.recognition, "bbox_hold_seconds", 0.45) or 0.45)
+        infer_max = int(getattr(cfg.recognition, "infer_max_width", 640) or 640)
+        face_roi = {
+            "x1": cfg.roi.face.x1, "y1": cfg.roi.face.y1,
+            "x2": cfg.roi.face.x2, "y2": cfg.roi.face.y2,
+        }
         while not _face_thread_stop.is_set():
             with _face_frame_lock:
                 img = _face_inference_frame
@@ -282,18 +291,28 @@ def run_engine() -> None:
             if img is None:
                 time.sleep(0.005)
                 continue
+            now_m = time.monotonic()
+            locked = _held_bbox is not None and now_m < _held_until
+            min_interval = 0.28 if (locked and _held_identity) else 0.08
+            if now_m - _last_face_infer_at < min_interval:
+                continue
+            _last_face_infer_at = now_m
             try:
                 import cv2 as _cv2
                 _t0 = time.perf_counter()
                 h, w = img.shape[:2]
-                if w > infer_max:
+                search, ox, oy = face_search_crop(
+                    img, held_bbox=_held_bbox, roi=face_roi
+                )
+                sh, sw = search.shape[:2]
+                if sw > infer_max:
                     small = _cv2.resize(
-                        img,
-                        (infer_max, int(h * infer_max / w)),
+                        search,
+                        (infer_max, max(1, int(sh * infer_max / sw))),
                         interpolation=_cv2.INTER_LINEAR,
                     )
                 else:
-                    small = img
+                    small = search
                 faces = face_engine.get_faces(small)
                 result = None
                 if faces:
@@ -302,18 +321,29 @@ def run_engine() -> None:
                         key=lambda f: (f["bbox"][2] - f["bbox"][0])
                         * (f["bbox"][3] - f["bbox"][1]),
                     )
-                    raw_bbox = scale_bbox_to_frame(
-                        face["bbox"], small.shape[1], small.shape[0], w, h
+                    raw_in_search = scale_bbox_to_frame(
+                        face["bbox"], small.shape[1], small.shape[0],
+                        search.shape[1], search.shape[0],
                     )
-                    if _held_bbox is not None and box_iou(_held_bbox, raw_bbox) < 0.15:
+                    raw_bbox = None
+                    if raw_in_search:
+                        raw_bbox = [
+                            raw_in_search[0] + ox,
+                            raw_in_search[1] + oy,
+                            raw_in_search[2] + ox,
+                            raw_in_search[3] + oy,
+                        ]
+                    if _held_bbox is not None and raw_bbox is not None and box_iou(_held_bbox, raw_bbox) < 0.15:
                         _held_identity = None
                     bbox = smooth_bbox(_held_bbox, raw_bbox, alpha=0.45)
-                    bbox, _held_missing = persist_bbox(bbox, bbox, 0, max_hold)
+                    bbox, _ = persist_bbox(bbox, bbox, 0, max_hold)
                     _held_bbox = bbox
+                    _held_until = now_m + hold_s
                     fw, fh = face_size_px(bbox)
                     det_score = round(float(face["det_score"]), 3)
                     approaching = fw < identify_min or fh < identify_min
                     too_small = fw < lock_min or fh < lock_min
+                    _face_infer_id += 1
                     result = {
                         "person_id": None,
                         "person_name": None,
@@ -322,6 +352,7 @@ def run_engine() -> None:
                         "bbox": bbox,
                         "det_score": det_score,
                         "approaching": approaching,
+                        "infer_id": _face_infer_id,
                     }
                     if too_small:
                         result["approaching"] = True
@@ -340,14 +371,7 @@ def run_engine() -> None:
                     else:
                         result["similarity"] = 0.0
                 else:
-                    _held_bbox, _held_missing = persist_bbox(
-                        _held_bbox, None, _held_missing, max_hold
-                    )
-                    if _held_bbox is None:
-                        _held_identity = None
-                        result = None
-                    else:
-                        # Tracking hold only — do not invent a new identity.
+                    if now_m < _held_until and _held_bbox is not None:
                         result = {
                             "person_id": (_held_identity or {}).get("person_id"),
                             "person_name": (_held_identity or {}).get("person_name"),
@@ -356,7 +380,12 @@ def run_engine() -> None:
                             "bbox": _held_bbox,
                             "det_score": None,
                             "approaching": not bool((_held_identity or {}).get("is_known")),
+                            "infer_id": _face_infer_id,
                         }
+                    else:
+                        _held_bbox = None
+                        _held_identity = None
+                        result = None
                 face_ms = (time.perf_counter() - _t0) * 1000.0
                 with _face_result_lock:
                     _face_result = result
@@ -536,17 +565,21 @@ def run_engine() -> None:
             # ── Frame skip for plate detection ───────────────────────────
             run_inference = (frame_count % max(1, cfg.inference.frame_skip) == 0)
             if not run_inference and state_machine.is_idle():
-                _write_debug_frame(frame.image, frames_dir, debug_display,
-                                   state_machine.state.value, fps,
-                                   current_plate_det, current_waste_result,
-                                   current_face_match, cfg.roi)
+                if now - last_dash_write >= DASHBOARD_FRAME_INTERVAL_SECONDS:
+                    last_dash_write = now
+                    _write_debug_frame(frame.image, frames_dir, debug_display,
+                                       state_machine.state.value, fps,
+                                       current_plate_det, current_waste_result,
+                                       current_face_match, cfg.roi)
                 metrics.set_state(state_machine.state.value)
                 metrics.write_state(_runtime_extra())
                 continue
 
             # ── Event pipeline ───────────────────────────────────────────
             recent = frame_buffer.get_recent(cfg.event.best_frame_window)
-            completed = event_manager.process_frame(frame, recent)
+            completed = event_manager.process_frame(
+                frame, recent, live_face=current_face_match
+            )
 
             # Update current display values for overlay
             if hasattr(event_manager, "_ctx") and event_manager._ctx:
@@ -577,10 +610,12 @@ def run_engine() -> None:
             metrics.write_state(_runtime_extra())
 
             # ── Debug display ─────────────────────────────────────────────
-            _write_debug_frame(frame.image, frames_dir, debug_display,
-                               state_machine.state.value, fps,
-                               current_plate_det, current_waste_result,
-                               current_face_match, cfg.roi)
+            if now - last_dash_write >= DASHBOARD_FRAME_INTERVAL_SECONDS:
+                last_dash_write = now
+                _write_debug_frame(frame.image, frames_dir, debug_display,
+                                   state_machine.state.value, fps,
+                                   current_plate_det, current_waste_result,
+                                   current_face_match, cfg.roi)
 
             if debug_mode and debug_display:
                 annotated = draw_debug_overlay(

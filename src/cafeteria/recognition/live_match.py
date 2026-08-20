@@ -107,6 +107,57 @@ def face_match_field(face_match: Any, name: str, default: Any = None) -> Any:
     return getattr(face_match, name, default)
 
 
+def face_search_crop(
+    image: Any,
+    held_bbox: Any = None,
+    roi: Any = None,
+    pad_ratio: float = 0.55,
+    min_side: int = 80,
+) -> tuple[Any, int, int]:
+    # [AI-CoLab: Verified by Antigravity] Gated search window crop around held bbox or ROI
+    """
+    Return (crop, origin_x, origin_y) for gated face search.
+
+    Prefer a padded window around the current lock. Otherwise use the
+    configured face ROI. Origin is in full-image coordinates so boxes
+    map back with a simple offset.
+    """
+    if image is None:
+        return image, 0, 0
+    try:
+        h, w = int(image.shape[0]), int(image.shape[1])
+    except (AttributeError, IndexError, TypeError, ValueError):
+        return image, 0, 0
+
+    if held_bbox is not None:
+        try:
+            x1, y1, x2, y2 = [int(v) for v in list(held_bbox)[:4]]
+        except (TypeError, ValueError):
+            x1 = y1 = x2 = y2 = 0
+        else:
+            bw, bh = max(1, x2 - x1), max(1, y2 - y1)
+            pad_x, pad_y = int(bw * pad_ratio), int(bh * pad_ratio)
+            cx1 = max(0, x1 - pad_x)
+            cy1 = max(0, y1 - pad_y)
+            cx2 = min(w, x2 + pad_x)
+            cy2 = min(h, y2 + pad_y)
+            if cx2 - cx1 >= min_side and cy2 - cy1 >= min_side:
+                return image[cy1:cy2, cx1:cx2], cx1, cy1
+
+    if roi:
+        try:
+            rx1 = int(max(0.0, min(1.0, float(roi.get("x1", 0.0)))) * w)
+            ry1 = int(max(0.0, min(1.0, float(roi.get("y1", 0.0)))) * h)
+            rx2 = int(max(0.0, min(1.0, float(roi.get("x2", 1.0)))) * w)
+            ry2 = int(max(0.0, min(1.0, float(roi.get("y2", 1.0)))) * h)
+        except (AttributeError, TypeError, ValueError):
+            rx1, ry1, rx2, ry2 = 0, 0, w, h
+        if rx2 > rx1 + 8 and ry2 > ry1 + 8:
+            return image[ry1:ry2, rx1:rx2], rx1, ry1
+
+    return image, 0, 0
+
+
 def face_match_as_dict(face_match: Any) -> Optional[dict]:
     """
     Return a JSON-safe live_face_match dict, or None when there is no payload.
@@ -136,4 +187,5 @@ def face_match_as_dict(face_match: Any) -> Optional[dict]:
         "bbox": bbox,
         "det_score": face_match_field(face_match, "det_score"),
         "approaching": bool(face_match_field(face_match, "approaching", False)),
+        "infer_id": face_match_field(face_match, "infer_id"),
     }

@@ -47,6 +47,10 @@ class MetricsCollector:
         self._last_event: Optional[dict] = None
         self._live_face_match: Optional[dict] = None
 
+    @property
+    def live_face_match(self) -> Optional[dict]:
+        return self._live_face_match
+
     def update_latencies(
         self,
         plate_ms: Optional[float] = None,

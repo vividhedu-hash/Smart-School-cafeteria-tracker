@@ -146,8 +146,9 @@ class RecognitionSettings(BaseModel):
     embedding_dir: str = "data/enrollment"
     det_size: list[int] = Field(default_factory=lambda: [480, 480])
     det_thresh: float = 0.42
-    infer_max_width: int = 1280
+    infer_max_width: int = 640
     bbox_hold_frames: int = 12
+    bbox_hold_seconds: float = 0.45
 
 
 class EventSettings(BaseModel):

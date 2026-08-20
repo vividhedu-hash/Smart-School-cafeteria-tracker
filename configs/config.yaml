@@ -67,10 +67,11 @@ recognition:
   identify_face_size: 48     # run identity match once the face is large enough
   max_event_duration_seconds: 4.0
   embedding_dir: "data/enrollment"
-  det_size: [480, 480]       # walk-past at 1280x720; 320 missed smaller moving faces
+  det_size: [320, 320]       # 320 on a face-ROI crop; full-frame 480 was ~800ms
   det_thresh: 0.42
-  infer_max_width: 1280      # do not downscale 720p before InsightFace
-  bbox_hold_frames: 12       # persist lock ~0.4s if a walking frame is missed
+  infer_max_width: 640       # search window after ROI/lock crop
+  bbox_hold_frames: 12       # fallback if time hold is unavailable
+  bbox_hold_seconds: 0.45    # drop the lock ~0.45s after the last real detection
 
 event:
   minimum_plate_presence_seconds: 0.20

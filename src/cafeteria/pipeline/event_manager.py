@@ -105,6 +105,8 @@ class EventManager:
         self._awaiting_plate_absence: bool = False
         self._plate_absent_frames: int = 0
         self._metrics = None  # optional MetricsCollector for live face updates
+        # Last live-tracker inference already counted as a vote (avoid duplicates)
+        self._last_face_infer_id: Optional[int] = None
         # Throttle always-on face scan: run at most every N frames to stay ≤300ms
         self._idle_face_frame_count: int = 0
 
@@ -131,6 +133,7 @@ class EventManager:
         self,
         frame: TimestampedFrame,
         recent_frames: list[TimestampedFrame],
+        live_face: Optional[dict] = None,
     ) -> Optional["CompletedEvent"]:
         """
         Process one frame through the state machine.
@@ -138,6 +141,8 @@ class EventManager:
         Args:
             frame:         Current TimestampedFrame.
             recent_frames: Recent buffered frames for best-frame selection.
+            live_face:     Latest always-on tracker payload (do not re-run
+                           InsightFace on the main thread when this is set).
 
         Returns:
             CompletedEvent if a transaction should be created, else None.
@@ -288,6 +293,7 @@ class EventManager:
             self._voter = TemporalVoter(
                 frames_to_vote=self._cfg.recognition.frames_to_vote,
             )
+            self._last_face_infer_id = None
             return None
 
         # ── FACE_CAPTURE: gather face frames ────────────────────────────────
@@ -300,33 +306,24 @@ class EventManager:
                 sm.transition(State.FACE_RECOGNITION)
                 return None
 
-            # Detect face in current frame
-            face = None
-            if self._face_engine and self._face_engine.is_loaded:
+            # Tracker thread owns InsightFace. Never run it on this loop.
+            self._vote_from_live_face(image, live_face)
+
+            known_lock = False
+            if isinstance(live_face, dict) and live_face.get("is_known"):
                 try:
-                    _t0 = time.perf_counter()
-                    face = self._face_engine.get_largest_face(
-                        image,
-                        min_size=self._cfg.recognition.minimum_face_size,
-                    )
-                    if self._metrics:
-                        self._metrics.update_latencies(
-                            face_ms=(time.perf_counter() - _t0) * 1000.0
-                        )
-                except Exception as exc:
-                    logger.warning("Face detection error: %s", exc)
+                    sim = float(live_face.get("similarity") or 0.0)
+                except (TypeError, ValueError):
+                    sim = 0.0
+                thresh = self._get_similarity_threshold()
+                known_lock = (
+                    not live_face.get("approaching")
+                    and sim >= thresh
+                    and self._voter is not None
+                    and len(self._voter._votes) >= 1
+                )
 
-            if face:
-                self._ctx.candidate_frames.append(image.copy())
-                self._ctx.face_bboxes.append(face["bbox"])
-                # Vote with this embedding
-                match = self._matcher.match(face["embedding"])
-                self._voter.add_vote(match)
-                log_event(logger, EventCode.FACE_DETECTED,
-                          f"det_score={face['det_score']:.2f}  "
-                          f"match={match.person_id}  sim={match.similarity:.3f}")
-
-            if self._voter and self._voter.is_ready():
+            if self._voter and (self._voter.is_ready() or known_lock):
                 self._finalize_best_frame(recent_frames)
                 sm.transition(State.FACE_RECOGNITION)
 
@@ -368,6 +365,77 @@ class EventManager:
             return event
 
         return None
+
+    def _vote_from_live_face(self, image: np.ndarray, live_face: Optional[dict]) -> bool:
+        """
+        Count a vote from the always-on face thread.
+
+        Returns True when this frame was handled without inline InsightFace.
+        A high-confidence identity already locked by the tracker is enough
+        to finish capture immediately.
+        """
+        if not isinstance(live_face, dict) or not live_face.get("bbox"):
+            return False
+        if live_face.get("approaching"):
+            return True
+
+        infer_id = live_face.get("infer_id")
+        if infer_id is not None and infer_id == self._last_face_infer_id:
+            if self._voter and self._voter.is_ready():
+                return True
+            known = bool(live_face.get("is_known"))
+            try:
+                sim = float(live_face.get("similarity") or 0.0)
+            except (TypeError, ValueError):
+                sim = 0.0
+            if known and sim >= self._get_similarity_threshold():
+                if self._voter and len(self._voter._votes) == 0:
+                    self._add_live_vote(image, live_face)
+                return True
+            return True
+
+        self._add_live_vote(image, live_face)
+        self._last_face_infer_id = infer_id
+        return True
+
+    def _add_live_vote(self, image: np.ndarray, live_face: dict) -> None:
+        try:
+            sim = float(live_face.get("similarity") or 0.0)
+        except (TypeError, ValueError):
+            sim = 0.0
+        match = MatchResult(
+            person_id=live_face.get("person_id"),
+            person_name=live_face.get("person_name"),
+            similarity=sim,
+            is_known=bool(live_face.get("is_known")),
+            candidates=[],
+        )
+        bbox = live_face.get("bbox")
+        try:
+            bbox_t = tuple(int(v) for v in list(bbox)[:4]) if bbox is not None else None
+        except (TypeError, ValueError):
+            bbox_t = None
+        self._ctx.candidate_frames.append(image.copy())
+        self._ctx.face_bboxes.append(bbox_t)
+        if self._voter is not None:
+            self._voter.add_vote(match)
+        log_event(
+            logger, EventCode.FACE_DETECTED,
+            f"live_track  match={match.person_id}  sim={match.similarity:.3f}",
+        )
+
+    def _get_similarity_threshold(self) -> float:
+        try:
+            rec = getattr(self._cfg, "recognition", None)
+            if rec is None and isinstance(self._cfg, dict):
+                rec = self._cfg.get("recognition")
+            if isinstance(rec, dict):
+                return float(rec.get("similarity_threshold", 0.52) or 0.52)
+            if rec is not None:
+                return float(getattr(rec, "similarity_threshold", 0.52) or 0.52)
+        except Exception:
+            pass
+        return 0.52
 
     # ──────────────────────────────────────────────────────────────────────
     # Helpers
@@ -429,6 +497,7 @@ class EventManager:
         self._voter = None
         self._awaiting_plate_absence = False
         self._plate_absent_frames = 0
+        self._last_face_infer_id = None
 
 
 @dataclass
