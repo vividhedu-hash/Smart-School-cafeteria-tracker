@@ -99,6 +99,20 @@ training:
   test_ratio: 0.10
   random_seed: 42
   output_base: "models"
+  # Closed ML loop: live plate crops → review/label → dataset → retrain → hot-swap
+  ml_loop:
+    enabled: true
+    auto_enqueue: true
+    min_confidence_to_enqueue: 0.40
+    promote_auto_confirmed: true      # high-conf AUTO_CONFIRMED → dataset directly
+    auto_confirm_min_confidence: 0.85
+    retrain_after_n_labels: 8         # new labels since last train before retrain
+    min_images_per_class: 4
+    auto_activate: true               # activate if score ≥ min and ≥ active model
+    auto_activate_min_accuracy: 0.50
+    retrain_epochs: 15
+    retrain_image_size: 224
+    retrain_batch: 8
 
 monitoring:
   state_write_interval_seconds: 0.1  # write every 100ms so dashboard updates in near real-time

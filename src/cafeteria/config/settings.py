@@ -168,6 +168,22 @@ class StorageSettings(BaseModel):
     exports: str = "data/exports"
 
 
+class MlLoopSettings(BaseModel):
+    """Closed-loop learning: live crops → labels → retrain → activate."""
+    enabled: bool = True
+    auto_enqueue: bool = True
+    min_confidence_to_enqueue: float = 0.40
+    promote_auto_confirmed: bool = True
+    auto_confirm_min_confidence: float = 0.85
+    retrain_after_n_labels: int = 8
+    min_images_per_class: int = 4
+    auto_activate: bool = True
+    auto_activate_min_accuracy: float = 0.50
+    retrain_epochs: int = 15
+    retrain_image_size: int = 224
+    retrain_batch: int = 8
+
+
 class TrainingSettings(BaseModel):
     default_base_model: str = "yolov8n-cls.pt"
     plate_base_model: str = "yolov8n.pt"
@@ -179,6 +195,7 @@ class TrainingSettings(BaseModel):
     test_ratio: float = 0.10
     random_seed: int = 42
     output_base: str = "models"
+    ml_loop: MlLoopSettings = Field(default_factory=MlLoopSettings)
 
 
 class MonitoringSettings(BaseModel):
@@ -236,6 +253,8 @@ class Settings(BaseModel):
             "data/datasets/waste/HIGH_WASTE",
             "data/datasets/plate/images",
             "data/datasets/plate/labels",
+            "data/ml_loop/pending",
+            "data/ml_loop/promoted",
         ]
         for d in dirs:
             (self.project_root / d).mkdir(parents=True, exist_ok=True)

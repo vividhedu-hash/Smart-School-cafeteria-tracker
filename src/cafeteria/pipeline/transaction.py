@@ -2,11 +2,11 @@
 Transaction creator — converts a CompletedEvent into a database record
 and creates a ReviewEntry when identity is unknown.
 
-Atomic: uses a single SQLAlchemy session for both Transaction and ReviewEntry.
+Also feeds the closed ML loop: plate crops are queued for labeling /
+auto-promoted when confidence is high, so the waste model can retrain.
 """
 from __future__ import annotations
 
-import json
 import time
 import uuid
 from pathlib import Path
@@ -28,17 +28,23 @@ class TransactionEngine:
     Args:
         captures_dir:     Base directory for saving evidence images.
         review_queue_dir: Directory for review queue images.
+        learning_loop:    Optional LearningLoop for closed-loop training.
     """
 
     def __init__(
         self,
         captures_dir: str | Path,
         review_queue_dir: str | Path,
+        learning_loop=None,
     ) -> None:
         self._captures_dir = Path(captures_dir)
         self._review_dir = Path(review_queue_dir)
+        self._learning_loop = learning_loop
         self._captures_dir.mkdir(parents=True, exist_ok=True)
         self._review_dir.mkdir(parents=True, exist_ok=True)
+
+    def set_learning_loop(self, learning_loop) -> None:
+        self._learning_loop = learning_loop
 
     def commit(self, event: CompletedEvent) -> str:
         """
@@ -68,8 +74,10 @@ class TransactionEngine:
             else (event.review_reason or "Face not recognised")
         )
 
-        # Save evidence image
+        # Save evidence image + plate crop for the ML loop
         event_image_path: Optional[str] = None
+        plate_image_path: Optional[str] = None
+        img_dir: Optional[Path] = None
         if event.best_frame is not None:
             dt = datetime.fromtimestamp(event.timestamp, tz=timezone.utc)
             date_str = dt.strftime("%Y%m%d")
@@ -79,6 +87,21 @@ class TransactionEngine:
             img_path = img_dir / "event.jpg"
             cv2.imwrite(str(img_path), event.best_frame)
             event_image_path = str(img_path)
+
+        plate_crop = event.plate_crop
+        if plate_crop is None and event.best_frame is not None and event.plate_detection is not None:
+            try:
+                plate_crop = event.plate_detection.crop(event.best_frame)
+            except Exception:
+                plate_crop = None
+        if plate_crop is not None and getattr(plate_crop, "size", 0) > 0:
+            if img_dir is None:
+                dt = datetime.fromtimestamp(event.timestamp, tz=timezone.utc)
+                img_dir = self._captures_dir / dt.strftime("%Y%m%d") / uuid.uuid4().hex[:8].upper()
+                img_dir.mkdir(parents=True, exist_ok=True)
+            plate_path = img_dir / "plate.jpg"
+            if cv2.imwrite(str(plate_path), plate_crop):
+                plate_image_path = str(plate_path)
 
         # Database write (atomic)
         session = get_session()
@@ -100,6 +123,7 @@ class TransactionEngine:
                 ),
                 status=status,
                 event_image_path=event_image_path,
+                plate_image_path=plate_image_path,
                 processing_latency_ms=event.processing_latency_ms,
                 review_reason=review_reason,
             )
@@ -131,6 +155,14 @@ class TransactionEngine:
                 waste=tx.waste_status or "?",
                 latency_ms=f"{event.processing_latency_ms:.0f}",
             )
+
+            self._feed_learning_loop(
+                event=event,
+                tx_id=tx_id,
+                status=status,
+                event_image_path=event_image_path,
+                plate_crop=plate_crop,
+            )
             return tx_id
 
         except Exception:
@@ -138,3 +170,32 @@ class TransactionEngine:
             raise
         finally:
             session.close()
+
+    def _feed_learning_loop(
+        self,
+        *,
+        event: CompletedEvent,
+        tx_id: str,
+        status: str,
+        event_image_path: Optional[str],
+        plate_crop,
+    ) -> None:
+        """Enqueue plate crop for the closed ML loop (never raises into commit)."""
+        if self._learning_loop is None or event.waste_result is None:
+            return
+        try:
+            bbox = None
+            if event.plate_detection is not None:
+                d = event.plate_detection
+                bbox = (int(d.x1), int(d.y1), int(d.x2), int(d.y2))
+            self._learning_loop.enqueue_plate_crop(
+                plate_crop if plate_crop is not None else event.best_frame,
+                predicted_label=event.waste_result.label,
+                confidence=float(event.waste_result.confidence or 0.0),
+                transaction_id=tx_id,
+                event_image_path=event_image_path,
+                auto_confirmed=(status == TransactionStatus.AUTO_CONFIRMED),
+                plate_bbox=bbox,
+            )
+        except Exception as exc:
+            logger.warning("ML loop enqueue failed for %s: %s", tx_id, exc)

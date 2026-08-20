@@ -474,13 +474,18 @@ class EventManager:
             status = "REVIEW_REQUIRED"
             review_reason = "PROXY_PLATE_MODE"
 
+        plate_det = ctx.best_plate_detection
+        plate_crop = None
+        if plate_det is not None and ctx.best_frame is not None:
+            try:
+                plate_crop = plate_det.crop(ctx.best_frame)
+            except Exception:
+                plate_crop = None
+
         return CompletedEvent(
             timestamp=ctx.start_time,
-            plate_detected=ctx.best_plate_detection is not None,
-            plate_confidence=(
-                ctx.best_plate_detection.confidence
-                if ctx.best_plate_detection else 0.0
-            ),
+            plate_detected=plate_det is not None,
+            plate_confidence=plate_det.confidence if plate_det else 0.0,
             food_present=True,
             waste_result=ctx.waste_result,
             face_match=match,
@@ -488,6 +493,8 @@ class EventManager:
             processing_latency_ms=ctx.latency_ms(),
             status=status,
             review_reason=review_reason,
+            plate_detection=plate_det,
+            plate_crop=plate_crop,
         )
 
     def force_reset(self) -> None:
@@ -514,3 +521,5 @@ class CompletedEvent:
     status: str  # AUTO_CONFIRMED | REVIEW_REQUIRED
     # Why the event was forced into review (e.g. "PROXY_PLATE_MODE"), if any
     review_reason: Optional[str] = None
+    plate_detection: Optional[Detection] = None
+    plate_crop: Optional[np.ndarray] = None
