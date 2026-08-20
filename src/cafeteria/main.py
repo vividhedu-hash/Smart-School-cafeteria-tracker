@@ -204,9 +204,21 @@ def run_engine() -> None:
         config=cfg,
     )
     event_manager.set_metrics(metrics)  # enables live face match in always-on mode
+    from cafeteria.training.learning_loop import LearningLoop, loop_config_from_settings
+
+    learning_loop = LearningLoop(
+        project_root=project_root,
+        datasets_dir=project_root / cfg.storage.datasets,
+        models_dir=project_root / cfg.storage.models,
+        registry=registry,
+        config=loop_config_from_settings(cfg.training),
+        device=cfg.device,
+        base_model=cfg.training.default_base_model,
+    )
     tx_engine = TransactionEngine(
         captures_dir=project_root / cfg.storage.captures,
         review_queue_dir=project_root / cfg.storage.review_queue,
+        learning_loop=learning_loop,
     )
 
 

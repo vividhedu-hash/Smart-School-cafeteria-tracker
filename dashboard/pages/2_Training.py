@@ -161,6 +161,41 @@ status_strip(
     ),
 )
 
+from cafeteria.training.learning_loop import LearningLoop, loop_config_from_settings
+_ml = LearningLoop(
+    project_root=cfg.project_root,
+    datasets_dir=cfg.project_root / cfg.storage.datasets,
+    models_dir=cfg.project_root / cfg.storage.models,
+    registry=registry,
+    config=loop_config_from_settings(cfg.training),
+    device=cfg.device,
+    base_model=cfg.training.default_base_model,
+)
+_ml_snap = _ml.snapshot()
+_m1, _m2, _m3, _m4 = st.columns(4)
+_m1.metric("ML pending crops", _ml_snap["pending_candidates"])
+_m2.metric(
+    "Labels since train",
+    f"{_ml_snap['promoted_since_train']}/{_ml_snap['retrain_after_n_labels']}",
+)
+_m3.metric("Waste dataset", _ml_snap["dataset_total"])
+_m4.metric("Active waste model", _ml_snap["active_waste"])
+if _ml_snap["ready_to_retrain"]:
+    if st.button("🧠 Start ML loop retrain now", key="btn_ml_retrain"):
+        started = _ml.maybe_retrain(force=True)
+        if started.get("started"):
+            st.success(f"Retrain started: {started.get('version')}")
+            st.rerun()
+        else:
+            st.warning(f"Could not start: {started.get('reason')}")
+elif _ml_snap["training_running"]:
+    st.caption("ML loop training is in progress — progress chart is in the Train Model tab.")
+else:
+    st.caption(
+        "Closed loop: live plate crops → Review Queue labels → dataset → auto-retrain → "
+        "auto-activate when accuracy improves."
+    )
+
 
 def _engine_frame() -> bytes | None:
     """Clean frame from the running engine (no overlay drawn on it)."""
