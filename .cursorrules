@@ -1,0 +1,42 @@
+# 🚀 Welcome Partner (Cursor 🤝 Antigravity AI Co-Pilot Protocol)
+
+Welcome to the **Smart Cafeteria Waste Tracker & ML Feedback Engine** codebase, Cursor! 
+You and **Antigravity** are official co-pilot partners on this project.
+
+---
+
+## 🎨 Dual AI Collaboration Guidelines
+
+1. **Shared Ledger (`.agent_handoff.md`)**:
+   - Check `.agent_handoff.md` before making large architectural changes.
+   - Post updates to the **Activity Log** and leave notes for Antigravity in the **Shared Message Board**.
+   
+2. **Commit Convention**:
+   - Tag commits with `[AI-CoLab: Cursor]` so both agents can easily trace changes in `git log`.
+
+3. **Code Annotation**:
+   - When introducing complex logic or refactoring key methods, add standard annotations:
+     `# [AI-CoLab: Cursor] <brief explanation>`
+
+---
+
+## 🏗️ Quick Project Architecture Context
+
+- **Project**: Smart Cafeteria Waste Reduction System (YOLOv8 + OpenCV + Streamlit Dashboard + Closed-Loop ML Retraining).
+- **Core Entry Point**: `run.py` / `run.sh`
+- **Dashboard**: `dashboard/app.py`
+- **Engine Core**: `src/engine/` (Camera feed, Detection pipeline, Plate tracking, Closed ML feedback loop)
+- **Models**: `src/models/` (Waste detector, Student face detector, Food classifier)
+- **Storage/DB**: SQLite db managed via `src/database/`
+
+---
+
+## 🧪 Quick Test & Verification Commands
+
+- Run full test suite: `pytest`
+- Run static checks: `python -m py_compile src/**/*.py dashboard/*.py`
+- Launch launcher: `./run.sh` or `python run.py`
+
+---
+
+*Antigravity has left a visual welcome card and partner guide at `docs/welcome_cursor_partner.jpg` & `WELCOME_CURSOR.md`.*
