@@ -1,3 +1,4 @@
 #!/usr/bin/env bash
-cd "/Users/indian/Downloads/Adaptive signal project/India Lens /school project/smart-cafeteria-waste"
-.venv/bin/python run.py
+# Double-click on macOS. Same as ./run.sh
+cd "$(dirname "$0")"
+exec ./run.sh "$@"

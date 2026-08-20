@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
-# One-click Launcher for Smart Cafeteria Waste Tracker
+# One-command start: engine + dashboard. Ctrl+C stops both.
+set -euo pipefail
 cd "$(dirname "$0")"
-if [ -d ".venv" ]; post
-then
-    .venv/bin/python run.py
-else
-    python3 run.py
+if [[ -x .venv/bin/python ]]; then
+  exec .venv/bin/python run.py "$@"
 fi
+exec python3 run.py "$@"
