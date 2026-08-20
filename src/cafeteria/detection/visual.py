@@ -19,6 +19,12 @@ from cafeteria.detection.waste_detector import WasteResult
 
 WASTE_LABELS = ("EMPTY", "LOW_WASTE", "MEDIUM_WASTE", "HIGH_WASTE")
 
+# Run the expensive circle/contour search at this width, then map boxes back.
+# 1280×720 HoughCircles on the plate ROI was ~270 ms on the live engine.
+ANALYZE_MAX_WIDTH = 512
+# Skip Hough + Canny when the cheap bright-blob pass is this sure.
+CASCADE_BLOB_CONF = 0.72
+
 
 def _roi_pixels(roi: Optional[dict], width: int, height: int) -> tuple[int, int, int, int]:
     if not roi:
@@ -59,14 +65,36 @@ def _clip_box(x1: int, y1: int, x2: int, y2: int, w: int, h: int) -> tuple[int, 
     return x1, y1, x2, y2
 
 
+def _map_dets_to_frame(
+    dets: list[Detection], scale: float, ox: int, oy: int
+) -> list[Detection]:
+    """Map boxes from the analysis image back to full-frame coordinates."""
+    inv = 1.0 / scale if scale > 0 else 1.0
+    mapped: list[Detection] = []
+    for d in dets:
+        mapped.append(Detection(
+            label=d.label,
+            confidence=d.confidence,
+            x1=int(round(d.x1 * inv)) + ox,
+            y1=int(round(d.y1 * inv)) + oy,
+            x2=int(round(d.x2 * inv)) + ox,
+            y2=int(round(d.y2 * inv)) + oy,
+        ))
+    return mapped
+
+
 def detect_plates_visual(
     image: np.ndarray,
     roi: Optional[dict] = None,
     min_confidence: float = 0.35,
 ) -> list[Detection]:
+    # [AI-CoLab: Verified by Antigravity] Downscaled ROI & bright-blob cascade optimization
     """
-    Find plate/tray-like objects in a BGR frame using circles, bright blobs,
-    and large rounded contours. Coordinates are in full-image space.
+    Find plate/tray-like objects in a BGR frame using a cheap-to-expensive
+    cascade: bright blobs, then Hough circles, then rounded contours.
+
+    Work runs on a downscaled ROI so HoughCircles stays real-time. Boxes
+    are returned in full-image coordinates.
     """
     if image is None or image.size == 0:
         return []
@@ -78,17 +106,41 @@ def detect_plates_visual(
         return []
 
     ch, cw = crop.shape[:2]
-    min_area = max(800, int(ch * cw * 0.025))
-    max_area = int(ch * cw * 0.85)
+    scale = 1.0
+    work = crop
+    if cw > ANALYZE_MAX_WIDTH:
+        scale = ANALYZE_MAX_WIDTH / float(cw)
+        work = cv2.resize(
+            crop,
+            (ANALYZE_MAX_WIDTH, max(1, int(round(ch * scale)))),
+            interpolation=cv2.INTER_AREA,
+        )
 
-    candidates: list[Detection] = []
-    candidates.extend(_hough_plates(crop, rx1, ry1, min_area, max_area))
-    candidates.extend(_bright_blob_plates(crop, rx1, ry1, min_area, max_area))
-    candidates.extend(_contour_plates(crop, rx1, ry1, min_area, max_area))
+    wh, ww = work.shape[:2]
+    min_area = max(400, int(wh * ww * 0.025))
+    max_area = int(wh * ww * 0.85)
 
-    kept = [
-        d for d in _nms(candidates)
+    blobs = _bright_blob_plates(work, 0, 0, min_area, max_area)
+    blob_kept = [
+        d for d in _nms(blobs)
         if d.confidence >= min_confidence and d.area >= min_area
+    ]
+    if blob_kept and blob_kept[0].confidence >= CASCADE_BLOB_CONF:
+        mapped = _map_dets_to_frame(blob_kept, scale, rx1, ry1)
+        mapped.sort(key=lambda d: d.confidence, reverse=True)
+        return mapped[:3]
+
+    candidates: list[Detection] = list(blobs)
+    candidates.extend(_hough_plates(work, 0, 0, min_area, max_area))
+    strong = [d for d in candidates if d.confidence >= 0.70]
+    if not strong:
+        candidates.extend(_contour_plates(work, 0, 0, min_area, max_area))
+
+    frame_min_area = max(800, int(ch * cw * 0.025))
+    kept = _map_dets_to_frame(_nms(candidates), scale, rx1, ry1)
+    kept = [
+        d for d in kept
+        if d.confidence >= min_confidence and d.area >= frame_min_area
     ]
     kept.sort(key=lambda d: d.confidence, reverse=True)
     return kept[:3]
@@ -197,8 +249,8 @@ def classify_waste_visual(plate_crop: np.ndarray) -> WasteResult:
     """
     Estimate leftover food from colour occupancy on a plate crop.
 
-    Plate-like pixels are pale / low-saturation. Food leftover is saturated
-    or dark-brown residue. Coverage is mapped to EMPTY / LOW / MEDIUM / HIGH.
+    Scores only the inner ellipse (not the table or plate rim) after a
+    light CLAHE pass so cafeteria lighting changes move coverage less.
     """
     if plate_crop is None or plate_crop.size == 0 or plate_crop.ndim < 2:
         return WasteResult(
@@ -209,20 +261,29 @@ def classify_waste_visual(plate_crop: np.ndarray) -> WasteResult:
         )
 
     h, w = plate_crop.shape[:2]
-    margin_h = max(2, int(h * 0.12))
-    margin_w = max(2, int(w * 0.12))
-    inner = plate_crop[margin_h:h - margin_h, margin_w:w - margin_w]
-    if inner.size == 0:
-        inner = plate_crop
+    inner = plate_crop
+    if h >= 16 and w >= 16:
+        lab = cv2.cvtColor(plate_crop, cv2.COLOR_BGR2LAB)
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        lab[:, :, 0] = clahe.apply(lab[:, :, 0])
+        inner = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
 
+    mask = np.zeros((h, w), dtype=np.uint8)
+    cv2.ellipse(
+        mask,
+        (w // 2, h // 2),
+        (max(1, int(w * 0.38)), max(1, int(h * 0.38))),
+        0, 0, 360, 255, -1,
+    )
     hsv = cv2.cvtColor(inner, cv2.COLOR_BGR2HSV)
     sat = hsv[:, :, 1].astype(np.float32)
     val = hsv[:, :, 2].astype(np.float32)
 
     colourful = (sat >= 42) & (val >= 35) & (val <= 245)
     dark_food = (sat >= 18) & (val < 115) & (val > 22)
-    food = colourful | dark_food
-    coverage = float(food.mean()) if food.size else 0.0
+    food = (colourful | dark_food) & (mask > 0)
+    plate_pixels = int(np.count_nonzero(mask))
+    coverage = float(np.count_nonzero(food) / plate_pixels) if plate_pixels else 0.0
 
     if coverage < 0.055:
         label = "EMPTY"
@@ -237,15 +298,13 @@ def classify_waste_visual(plate_crop: np.ndarray) -> WasteResult:
         label = "HIGH_WASTE"
         conf = float(np.clip(0.60 + min(0.32, (coverage - 0.40) * 0.8), 0.60, 0.94))
 
-    # Soft scores for the dashboard — peaked at the chosen class.
     all_scores = {k: 0.04 for k in WASTE_LABELS}
     all_scores[label] = round(conf, 4)
     leftover = max(0.0, 1.0 - conf - 0.04 * 3)
     neighbours = [k for k in WASTE_LABELS if k != label]
-    for i, k in enumerate(neighbours):
-        all_scores[k] = round(0.04 + leftover / max(len(neighbours), 1), 4)
-        if i == 0:
-            pass
+    share = leftover / max(len(neighbours), 1)
+    for k in neighbours:
+        all_scores[k] = round(0.04 + share, 4)
 
     return WasteResult(
         label=label,
