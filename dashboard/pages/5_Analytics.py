@@ -31,7 +31,7 @@ inject_css()
 
 st.title("📊 Analytics")
 
-from cafeteria.config.settings import load_settings
+from boot import load_app
 from cafeteria.monitoring.analytics import (
     PIPELINE_GATED_COPY,
     events_over_time_rows,
@@ -40,12 +40,11 @@ from cafeteria.monitoring.analytics import (
     status_counts as status_count_map,
     waste_pie_payload,
 )
-from cafeteria.storage.database import init_db, get_session
+from cafeteria.storage.database import get_session
 from cafeteria.storage.repositories import TransactionRepository, ReviewRepository
 from empty_states import empty_state_html
 
-cfg = load_settings(config_path=_project_root / "configs" / "config.yaml")
-init_db(cfg.project_root / cfg.storage.database)
+cfg = load_app()
 
 session = get_session()
 tx_repo  = TransactionRepository(session)
@@ -79,8 +78,8 @@ if total == 0:
             title="No analytics yet — this is real, not broken",
             body=PIPELINE_GATED_COPY,
             steps=[
-                "Upload waste images and label plate photos on the Training page.",
-                "Train and activate both models (or run <code>scripts/quickstart.py</code>).",
+                "Start the engine and return a tray on Live Monitor (visual backends work without YOLO).",
+                "Optional: train YOLO models on the Training page for higher accuracy.",
                 "Charts appear from live SQLite rows after the first real event.",
             ],
         ),

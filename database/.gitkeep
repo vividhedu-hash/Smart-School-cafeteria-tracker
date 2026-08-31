@@ -1,0 +1,2 @@
+# Keep this directory in git. SQLite files (*.db) are gitignored and created
+# on first run by cafeteria.storage.bootstrap.ensure_runtime_storage.

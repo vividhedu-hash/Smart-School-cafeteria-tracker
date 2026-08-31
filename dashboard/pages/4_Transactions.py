@@ -31,14 +31,13 @@ inject_css()
 
 st.title("📋 Transactions")
 
-from cafeteria.config.settings import load_settings
-from cafeteria.storage.database import init_db, get_session
+from boot import load_app
+from cafeteria.storage.database import get_session
 from cafeteria.storage.repositories import TransactionRepository, PersonRepository
 from cafeteria.storage.models import WasteStatus, TransactionStatus
 from empty_states import empty_state_html
 
-cfg = load_settings(config_path=_project_root / "configs" / "config.yaml")
-init_db(cfg.project_root / cfg.storage.database)
+cfg = load_app()
 
 # ── Filters ───────────────────────────────────────────────────────────────────
 st.sidebar.markdown("### Filters")

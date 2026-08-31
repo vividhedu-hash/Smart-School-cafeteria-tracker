@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Optional
 
 from cafeteria.pipeline.event_manager import CompletedEvent
+from cafeteria.storage.bootstrap import resolve_person_fk
 from cafeteria.storage.database import get_session
 from cafeteria.storage.models import TransactionStatus
 from cafeteria.storage.repositories import ReviewRepository, TransactionRepository
@@ -109,10 +110,15 @@ class TransactionEngine:
             tx_repo = TransactionRepository(session)
             rev_repo = ReviewRepository(session)
 
+            matched_pid = event.face_match.person_id if event.face_match else None
+            matched_name = event.face_match.person_name if event.face_match else None
+            person_fk = resolve_person_fk(session, matched_pid, matched_name)
+
             tx = tx_repo.create(
                 timestamp=event.timestamp,
-                person_id=event.face_match.person_id if event.face_match else None,
-                person_name=event.face_match.person_name if event.face_match else None,
+                person_id=matched_pid,
+                person_name=matched_name,
+                person_id_fk=person_fk,
                 plate_detected=event.plate_detected,
                 food_present=event.food_present,
                 waste_status=event.waste_result.label if event.waste_result else None,

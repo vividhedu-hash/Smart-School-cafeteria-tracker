@@ -78,7 +78,8 @@ def latency_values(transactions: Optional[Iterable[Any]]) -> list[float]:
 
 
 PIPELINE_GATED_COPY = (
-    "Waste transactions are created only after a trained plate model **and** "
-    "a trained waste model are activated. Face recognition still runs live. "
-    "No sample rows are shown."
+    "No waste events have been written to SQLite yet. The live pipeline runs "
+    "on the built-in OpenCV visual backends (or on trained YOLO models once "
+    "you activate them). Face recognition still runs live. No sample rows "
+    "are shown."
 )

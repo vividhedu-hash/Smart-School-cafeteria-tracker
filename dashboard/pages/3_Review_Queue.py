@@ -31,8 +31,8 @@ inject_css()
 
 st.title("🔍 Review Queue")
 
-from cafeteria.config.settings import load_settings
-from cafeteria.storage.database import init_db, get_session
+from boot import load_app
+from cafeteria.storage.database import get_session
 from cafeteria.storage.repositories import (
     PersonRepository, ReviewRepository, TransactionRepository
 )
@@ -41,8 +41,7 @@ from cafeteria.training.learning_loop import LearningLoop, loop_config_from_sett
 from cafeteria.training.registry import ModelRegistry
 from empty_states import empty_state_html
 
-cfg = load_settings(config_path=_project_root / "configs" / "config.yaml")
-init_db(cfg.project_root / cfg.storage.database)
+cfg = load_app()
 
 registry = ModelRegistry(cfg.project_root / "models" / "registry.json")
 ml_loop = LearningLoop(

@@ -21,7 +21,8 @@ import numpy as np
 from cafeteria.config.settings import load_settings
 from cafeteria.recognition.face_engine import FaceEngine
 from cafeteria.recognition.enrollment import EnrollmentManager
-from cafeteria.storage.database import init_db, get_session
+from cafeteria.storage.bootstrap import ensure_runtime_storage
+from cafeteria.storage.database import get_session
 from cafeteria.storage.repositories import PersonRepository
 from cafeteria.utils.logging import setup_logging, get_logger
 
@@ -38,7 +39,7 @@ def main():
 
     cfg = load_settings(config_path=_project_root / "configs" / "config.yaml")
     setup_logging(log_level=cfg.application.log_level, log_dir=_project_root / "logs")
-    init_db(cfg.project_root / cfg.storage.database)
+    ensure_runtime_storage(cfg)
 
     enrollment_mgr = EnrollmentManager(
         enrollment_dir=cfg.project_root / cfg.recognition.embedding_dir,

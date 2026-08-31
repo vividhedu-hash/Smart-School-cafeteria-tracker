@@ -39,7 +39,6 @@ from cafeteria.detection.plate_detector import PlateDetector, ModelNotFoundError
 from cafeteria.detection.waste_detector import WasteDetector
 from cafeteria.recognition.face_engine import FaceEngine
 from cafeteria.recognition.matcher import EmbeddingMatcher, match_field
-from cafeteria.recognition.enrollment import EnrollmentManager
 from cafeteria.recognition.live_match import (
     box_iou,
     face_search_crop,
@@ -49,13 +48,12 @@ from cafeteria.recognition.live_match import (
     smooth_bbox,
 )
 from cafeteria.monitoring.overlay import draw_debug_overlay
+from cafeteria.monitoring.health import component_status, compute_readiness
 from cafeteria.pipeline.state_machine import StateMachine
 from cafeteria.pipeline.event_manager import EventManager
 from cafeteria.pipeline.transaction import TransactionEngine
-from cafeteria.storage.database import init_db
-from cafeteria.monitoring.health import (
-    get_system_metrics, component_status, compute_readiness
-)
+from cafeteria.storage.bootstrap import ensure_runtime_storage
+from cafeteria.storage.database import db_health_check
 from cafeteria.monitoring.metrics import MetricsCollector, read_commands
 from cafeteria.monitoring.heartbeat import should_idle_shutdown
 from cafeteria.training.registry import ModelRegistry
@@ -109,8 +107,10 @@ def run_engine() -> None:
         logger.warning("Could not write PID file: %s", exc)
 
     # ── Database ─────────────────────────────────────────────────────────
-    db_path = project_root / cfg.storage.database
-    init_db(db_path)
+    db_report = ensure_runtime_storage(cfg)
+    db_ok = bool(db_report.get("ok")) and db_health_check()
+    if not db_ok:
+        logger.error("Database is not usable at %s", db_report.get("db_path"))
 
     # ── Metrics ──────────────────────────────────────────────────────────
     metrics = MetricsCollector(
@@ -442,7 +442,7 @@ def run_engine() -> None:
                 plate_detector_loaded=plate_ok,
                 waste_detector_loaded=waste_ok,
                 face_engine_loaded=face_ok,
-                db_ok=True,
+                db_ok=db_ok,
             ),
             "ready": readiness["ready"],
             "blocking_reasons": readiness["blocking_reasons"],

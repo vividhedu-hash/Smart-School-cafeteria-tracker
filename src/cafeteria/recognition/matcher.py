@@ -73,6 +73,13 @@ class EmbeddingMatcher:
             meta_path = person_dir / "meta.json"
 
             if not emb_path.exists():
+                json_path = person_dir / "embedding.json"
+                if json_path.exists():
+                    logger.warning(
+                        "%s has embedding.json but no embedding.npy — "
+                        "regenerate embeddings on the Training page",
+                        person_dir.name,
+                    )
                 continue
 
             from cafeteria.recognition.crypto import load_embedding

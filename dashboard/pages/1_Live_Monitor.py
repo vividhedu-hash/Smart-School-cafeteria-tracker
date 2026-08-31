@@ -33,13 +33,13 @@ st.set_page_config(page_title="Live Monitor", page_icon="📹", layout="wide")
 from auth_gate import require_login
 require_login()
 
-from cafeteria.config.settings import load_settings
+from boot import load_app
 from cafeteria.recognition.live_match import face_match_as_dict
 from engine_ctl import write_heartbeat, engine_is_alive, start_engine, stop_engine
 from engine_client import fetch_state, fetch_frame_bytes
 from theme import inject_css, status_strip
 
-cfg = load_settings(config_path=_project_root / "configs" / "config.yaml")
+cfg = load_app()
 
 # Heartbeat immediately: the engine only keeps the camera while a page asks.
 write_heartbeat()

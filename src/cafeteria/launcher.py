@@ -459,6 +459,22 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return 1
 
     _banner(python, root)
+
+    try:
+        from cafeteria.config.settings import load_settings
+        from cafeteria.storage.bootstrap import ensure_runtime_storage
+
+        cfg = load_settings(config_path=root / "configs" / "config.yaml")
+        report = ensure_runtime_storage(cfg)
+        status = "created" if report.get("created") else "ready"
+        _log(
+            f"  Database : {report.get('db_path')} ({status}"
+            f"{', synced ' + str(report.get('persons_synced')) + ' person(s)' if report.get('persons_synced') else ''})",
+            "green" if report.get("ok") else "red",
+        )
+    except Exception as exc:
+        _log(f"  Database bootstrap failed: {exc}", "red")
+        return 1
     try:
         return start_stack(
             root,

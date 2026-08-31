@@ -23,7 +23,6 @@ for p in [str(_src_dir), str(_project_root), str(_dashboard_dir)]:
     if p not in sys.path:
         sys.path.insert(0, p)
 
-from cafeteria.config.settings import load_settings
 import streamlit as st
 
 # ── Page config (must be first Streamlit call) ──────────────────────────────
@@ -49,11 +48,9 @@ from engine_client import fetch_state
 
 @st.cache_resource
 def _init():
-    cfg = load_settings(config_path=_project_root / "configs" / "config.yaml")
-    from cafeteria.storage.database import init_db
-    init_db(cfg.project_root / cfg.storage.database)
+    from boot import load_app
     # Do NOT auto-start engine; user explicitly controls lifecycle from website UI
-    return cfg
+    return load_app()
 
 cfg = _init()
 

@@ -78,7 +78,6 @@ st.markdown("""
 st.title("🧠 Training & Dataset Management")
 
 # ── Project imports ───────────────────────────────────────────────────────────
-from cafeteria.config.settings import load_settings
 from cafeteria.detection.visual import detect_plates_visual
 from cafeteria.training.dataset_manager import DatasetManager, WASTE_CLASSES
 from cafeteria.training.progress import (
@@ -92,7 +91,7 @@ from cafeteria.training.progress import (
 from cafeteria.training.registry import ModelRegistry
 from cafeteria.monitoring.metrics import write_command
 from cafeteria.recognition.enrollment import EnrollmentManager
-from cafeteria.storage.database import init_db, get_session
+from cafeteria.storage.database import get_session
 from cafeteria.storage.repositories import PersonRepository
 from engine_ctl import engine_is_alive, start_engine, stop_engine, write_heartbeat
 from engine_client import fetch_raw_frame_bytes, fetch_state
@@ -116,7 +115,8 @@ def _construct(cls, **wanted):
     return cls(**{k: v for k, v in wanted.items() if k in params and k != "self"})
 
 
-cfg      = load_settings(config_path=_project_root / "configs" / "config.yaml")
+from boot import load_app
+cfg = load_app()
 registry = ModelRegistry(cfg.project_root / "models" / "registry.json")
 dm       = DatasetManager(
     cfg.project_root / cfg.storage.datasets,
@@ -127,21 +127,11 @@ dm       = DatasetManager(
 )
 TRAINING_STATUS_FILE = status_path(cfg.project_root)
 
-init_db(cfg.project_root / cfg.storage.database)
 enrollment_mgr = EnrollmentManager(
     enrollment_dir=cfg.project_root / cfg.recognition.embedding_dir,
     audit_path=cfg.project_root / "data" / "audit" / "roster.jsonl",
 )
 
-_sync = get_session()
-try:
-    if hasattr(enrollment_mgr, "sync_to_database"):
-        enrollment_mgr.sync_to_database(_sync)
-        _sync.commit()
-except Exception:
-    _sync.rollback()
-finally:
-    _sync.close()
 if hasattr(enrollment_mgr, "write_gallery_index"):
     enrollment_mgr.write_gallery_index()
 

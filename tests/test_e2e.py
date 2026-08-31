@@ -48,6 +48,53 @@ def test_ready_pipeline_commits_real_sqlite_row(db_session, tmp_path):
     assert any(r.transaction_id == tx_id for r in review)
 
 
+def test_commit_known_face_sets_person_fk(db_session, tmp_path):
+    import time
+
+    from cafeteria.detection.waste_detector import WasteResult
+    from cafeteria.pipeline.event_manager import CompletedEvent
+    from cafeteria.recognition.matcher import MatchResult
+    from cafeteria.storage.repositories import PersonRepository
+
+    person = PersonRepository(db_session).create(
+        person_id="alice_fk", name="Alice",
+    )
+    db_session.commit()
+
+    event = CompletedEvent(
+        timestamp=time.time(),
+        plate_detected=True,
+        plate_confidence=0.91,
+        food_present=True,
+        waste_result=WasteResult(
+            label="HIGH_WASTE",
+            confidence=0.9,
+            all_scores={"HIGH_WASTE": 0.9},
+            is_waste=True,
+        ),
+        face_match=MatchResult(
+            person_id="alice_fk",
+            person_name="Alice",
+            similarity=0.88,
+            is_known=True,
+            candidates=[],
+        ),
+        best_frame=None,
+        processing_latency_ms=12.0,
+        status="AUTO_CONFIRMED",
+    )
+    engine = TransactionEngine(
+        captures_dir=tmp_path / "captures",
+        review_queue_dir=tmp_path / "review",
+    )
+    tx_id = engine.commit(event)
+    db_session.expire_all()
+    tx = TransactionRepository(db_session).get_by_id(tx_id)
+    assert tx is not None
+    assert tx.status == "AUTO_CONFIRMED"
+    assert tx.person_id_fk == person.id
+
+
 def test_proxy_plate_forces_review_not_auto_confirm(tmp_path):
     plate = StubPlateDetector()
     plate.proxy_mode = True

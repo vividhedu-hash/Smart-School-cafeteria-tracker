@@ -446,6 +446,12 @@ class EnrollmentManager:
             name = meta.get("name") or pid
             n_imgs = self.image_count(pid)
             emb = str(self.embedding_path(pid)) if self.has_embedding(pid) else None
+            meta_n = int(meta.get("image_count") or 0)
+            has_history = self.samples_path(pid).exists() or meta_n > 0
+            # [AI-CoLab: Cursor] Abandoned wizard stubs (no files, no embedding,
+            # no enrollment history) stay on disk but must not become Person rows.
+            if n_imgs == 0 and not emb and not has_history:
+                continue
             existing = repo.get_by_person_id(pid)
             if existing is None:
                 repo.create(person_id=pid, name=name, embedding_path=emb)

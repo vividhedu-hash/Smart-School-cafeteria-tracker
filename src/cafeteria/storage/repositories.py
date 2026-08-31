@@ -211,6 +211,8 @@ class TransactionRepository:
             tx.status = status
             if person_id:
                 tx.person_id = person_id
+                from cafeteria.storage.bootstrap import resolve_person_fk
+                tx.person_id_fk = resolve_person_fk(self._db, person_id, person_name)
             if person_name:
                 tx.person_name = person_name
             self._db.flush()

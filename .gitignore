@@ -30,10 +30,12 @@ logs/*.jsonl
 database/*.db
 database/*.db-shm
 database/*.db-wal
+!database/.gitkeep
 
 # Models — keep directory structure, not large weights
 models/face/**/*.onnx
 models/face/**/*.bin
+models/face/**/*.zip
 models/plate/**/*.pt
 models/waste/**/*.pt
 
@@ -69,8 +71,12 @@ htmlcov/
 .coverage
 coverage.xml
 
-# Ultralytics runs
+# Ultralytics runs & root weights
 runs/
+*.pt
+
+# Cursor
+.cursor/
 
 # macOS
 .DS_Store
