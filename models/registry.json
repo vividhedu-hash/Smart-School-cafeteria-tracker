@@ -1,10 +1,65 @@
 {
   "plate": {
-    "active_version": null,
-    "versions": []
+    "active_version": "v001",
+    "versions": [
+      {
+        "version": "v001",
+        "weights_path": "/Users/indian/Downloads/Adaptive signal project/India Lens /school project/smart-cafeteria-waste/models/plate/v001/weights/best.pt",
+        "trained_at": 1788286186.298029,
+        "metrics": {
+          "map50": 0.1421,
+          "map50_95": 0.1015
+        },
+        "config": {
+          "base_model": "yolov8n.pt",
+          "epochs": 3,
+          "image_size": 640,
+          "batch": 8
+        },
+        "dataset_stats": {},
+        "is_active": true
+      }
+    ]
   },
   "waste": {
-    "active_version": null,
-    "versions": []
+    "active_version": "v001",
+    "versions": [
+      {
+        "version": "v001",
+        "weights_path": "/Users/indian/Downloads/Adaptive signal project/India Lens /school project/smart-cafeteria-waste/models/waste/v001/weights/best.pt",
+        "trained_at": 1788286240.4482582,
+        "metrics": {
+          "top1_accuracy": 1.0,
+          "top5_accuracy": 1.0,
+          "dataset": {
+            "EMPTY": 15,
+            "LOW_WASTE": 0,
+            "MEDIUM_WASTE": 0,
+            "HIGH_WASTE": 0
+          },
+          "dataset_stats": {
+            "train": {
+              "EMPTY": 10
+            },
+            "val": {
+              "EMPTY": 3
+            },
+            "test": {
+              "EMPTY": 2
+            },
+            "total": 15
+          }
+        },
+        "config": {
+          "base_model": "yolov8n-cls.pt",
+          "epochs": 3,
+          "image_size": 224,
+          "batch": 8,
+          "device": "cpu"
+        },
+        "dataset_stats": {},
+        "is_active": true
+      }
+    ]
   }
 }

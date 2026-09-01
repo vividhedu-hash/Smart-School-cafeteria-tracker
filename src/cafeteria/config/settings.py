@@ -77,19 +77,36 @@ class AppSettings(BaseModel):
 
 class CameraSettings(BaseModel):
     mode: str = "webcam"      # webcam | rtsp
-    source: Any = 0           # int index or RTSP URL string
-    width: int = 1920
-    height: int = 1080
+    source: Any = "auto"      # auto | int index | RTSP URL
+    width: int = 0            # 0 / auto = camera native (capped)
+    height: int = 0
     fps: int = 30
     buffer_size: int = 5
     reconnect_delay_seconds: float = 3.0
     reconnect_max_attempts: int = 10
+    max_capture_width: int = 1920  # 4K webcams are stepped down for realtime
 
     @field_validator("source", mode="before")
     @classmethod
     def coerce_source(cls, v: Any) -> Any:
-        if isinstance(v, str) and v.isdigit():
-            return int(v)
+        if v is None:
+            return "auto"
+        if isinstance(v, str):
+            raw = v.strip()
+            if raw.lower() in ("auto", "", "default"):
+                return "auto"
+            if raw.isdigit() or (raw.startswith("-") and raw[1:].isdigit()):
+                return int(raw)
+            return raw
+        return v
+
+    @field_validator("width", "height", "fps", "max_capture_width", mode="before")
+    @classmethod
+    def coerce_auto_int(cls, v: Any) -> Any:
+        if v is None:
+            return 0
+        if isinstance(v, str) and v.strip().lower() in ("auto", ""):
+            return 0
         return v
 
 

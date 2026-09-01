@@ -74,6 +74,41 @@ def test_visual_food_plate_is_waste():
     assert result.confidence > 0.5
 
 
+def test_visual_detects_plate_in_dim_light():
+    img = np.full((720, 1280, 3), 18, dtype=np.uint8)
+    cv2.circle(img, (640, 520), 140, (118, 118, 124), -1)
+    cv2.circle(img, (640, 520), 140, (80, 80, 86), 5)
+    dets = detect_plates_visual(
+        img, roi={"x1": 0.05, "y1": 0.40, "x2": 0.95, "y2": 1.0}, min_confidence=0.35
+    )
+    assert dets, "CLAHE + adaptive pale mask should find a dim plate"
+    cx, cy = dets[0].center
+    assert 500 < cx < 780
+    assert 390 < cy < 650
+
+
+def test_visual_detects_dark_cafeteria_tray():
+    img = np.full((480, 640, 3), 28, dtype=np.uint8)
+    img[:] = (24, 26, 30)
+    cv2.rectangle(img, (140, 280), (500, 450), (36, 110, 48), -1)
+    cv2.rectangle(img, (140, 280), (500, 450), (20, 70, 30), 4)
+    dets = detect_plates_visual(
+        img, roi={"x1": 0.05, "y1": 0.40, "x2": 0.95, "y2": 1.0}, min_confidence=0.35
+    )
+    assert dets, "coloured tray on a dark table should be found"
+    cx, cy = dets[0].center
+    assert 200 < cx < 440
+    assert 300 < cy < 450
+
+
+def test_visual_waste_on_dark_tray_is_not_empty():
+    crop = np.full((220, 220, 3), (40, 95, 50), dtype=np.uint8)
+    cv2.ellipse(crop, (110, 110), (70, 55), 0, 0, 360, (18, 60, 150), -1)
+    result = classify_waste_visual(crop)
+    assert result.is_waste is True
+    assert result.label != "EMPTY"
+
+
 def test_plate_detector_loads_visual_when_weights_missing(tmp_path):
     det = PlateDetector(tmp_path / "missing.pt", allow_visual_fallback=True)
     det.load()

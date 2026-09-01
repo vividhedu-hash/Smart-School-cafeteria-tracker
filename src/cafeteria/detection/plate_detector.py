@@ -227,12 +227,20 @@ class PlateDetector:
         fw = frame_width or w
         fh = frame_height or h
 
+        long_side = max(h, w)
+        imgsz = 640
+        if (self._device.startswith("cuda") or self._device == "mps") and long_side >= 1600:
+            imgsz = 736
+
         predict_kwargs = {
             "conf": self._confidence,
             "iou": self._iou,
             "device": self._device,
             "verbose": False,
+            "imgsz": imgsz,
         }
+        if self._device.startswith("cuda"):
+            predict_kwargs["half"] = True
         if self._coco_fallback:
             predict_kwargs["classes"] = [39, 41, 45, 46, 47, 49, 60]
 

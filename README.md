@@ -196,8 +196,8 @@ Edit `configs/config.yaml` to adjust:
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `camera.source` | `0` | Webcam index or RTSP URL |
-| `camera.width/height` | `1280×720` | Capture resolution |
+| `camera.source` | `auto` | First working webcam (`0` then `1`…); or an index / RTSP URL |
+| `camera.width/height` | `auto` | Camera native mode, capped at `max_capture_width` (default 1920) |
 | `event.minimum_plate_presence_seconds` | `0.20` | Debounce before food analysis |
 | `event.cooldown_seconds` | `2.0` | Freeze period after each event |
 | `event.timeout_seconds` | `4.0` | Max face capture window |

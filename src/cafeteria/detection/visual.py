@@ -1,11 +1,9 @@
 """
-# [AI-CoLab: Verified by Antigravity] — Clean OpenCV fallback detector for plates & waste
 Built-in OpenCV detectors used when no trained YOLO weights exist.
 
-
-These are real computer-vision algorithms (not random labels, not mocked
-YOLO). They let the live pipeline run on day one. Training a YOLOv8 plate
-or waste model on cafeteria photos replaces this backend automatically.
+These are real computer-vision algorithms (not random labels). They let the
+live pipeline run on day one on any webcam. Training a YOLOv8 plate or waste
+model on cafeteria photos replaces this backend automatically.
 """
 from __future__ import annotations
 
@@ -20,7 +18,6 @@ from cafeteria.detection.waste_detector import WasteResult
 WASTE_LABELS = ("EMPTY", "LOW_WASTE", "MEDIUM_WASTE", "HIGH_WASTE")
 
 # Run the expensive circle/contour search at this width, then map boxes back.
-# 1280×720 HoughCircles on the plate ROI was ~270 ms on the live engine.
 ANALYZE_MAX_WIDTH = 512
 # Skip Hough + Canny when the cheap bright-blob pass is this sure.
 CASCADE_BLOB_CONF = 0.72
@@ -83,18 +80,25 @@ def _map_dets_to_frame(
     return mapped
 
 
+def _clahe_bgr(image: np.ndarray) -> np.ndarray:
+    """Lighting-invariant copy for geometry search (does not invent colour)."""
+    lab = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
+    clahe = cv2.createCLAHE(clipLimit=2.2, tileGridSize=(8, 8))
+    lab[:, :, 0] = clahe.apply(lab[:, :, 0])
+    return cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
+
+
 def detect_plates_visual(
     image: np.ndarray,
     roi: Optional[dict] = None,
     min_confidence: float = 0.35,
 ) -> list[Detection]:
-    # [AI-CoLab: Verified by Antigravity] Downscaled ROI & bright-blob cascade optimization
     """
-    Find plate/tray-like objects in a BGR frame using a cheap-to-expensive
-    cascade: bright blobs, then Hough circles, then rounded contours.
+    Find plate/tray-like objects using a cheap-to-expensive cascade.
 
-    Work runs on a downscaled ROI so HoughCircles stays real-time. Boxes
-    are returned in full-image coordinates.
+    Cues: adaptive pale ware, dark/coloured cafeteria trays, Hough circles,
+    rounded/rectangular contours. Work runs on a downscaled, CLAHE-equalised
+    ROI so cafeteria lighting (window vs overhead) does not kill detection.
     """
     if image is None or image.size == 0:
         return []
@@ -116,11 +120,13 @@ def detect_plates_visual(
             interpolation=cv2.INTER_AREA,
         )
 
+    equalized = _clahe_bgr(work)
     wh, ww = work.shape[:2]
     min_area = max(400, int(wh * ww * 0.025))
     max_area = int(wh * ww * 0.85)
 
-    blobs = _bright_blob_plates(work, 0, 0, min_area, max_area)
+    blobs = _bright_blob_plates(equalized, 0, 0, min_area, max_area)
+    blobs.extend(_bright_blob_plates(work, 0, 0, min_area, max_area))
     blob_kept = [
         d for d in _nms(blobs)
         if d.confidence >= min_confidence and d.area >= min_area
@@ -131,10 +137,11 @@ def detect_plates_visual(
         return mapped[:3]
 
     candidates: list[Detection] = list(blobs)
-    candidates.extend(_hough_plates(work, 0, 0, min_area, max_area))
+    candidates.extend(_tray_plates(work, 0, 0, min_area, max_area))
+    candidates.extend(_hough_plates(equalized, 0, 0, min_area, max_area))
     strong = [d for d in candidates if d.confidence >= 0.70]
     if not strong:
-        candidates.extend(_contour_plates(work, 0, 0, min_area, max_area))
+        candidates.extend(_contour_plates(equalized, 0, 0, min_area, max_area))
 
     frame_min_area = max(800, int(ch * cw * 0.025))
     kept = _map_dets_to_frame(_nms(candidates), scale, rx1, ry1)
@@ -154,13 +161,16 @@ def _hough_plates(
     ch, cw = gray.shape[:2]
     min_r = max(18, int(min(ch, cw) * 0.08))
     max_r = max(min_r + 8, int(min(ch, cw) * 0.48))
+    # Adaptive Canny-ish param1 from median so dim rooms still circle-find.
+    median = float(np.median(blur))
+    param1 = int(np.clip(median * 1.1, 50, 140))
     circles = cv2.HoughCircles(
         blur,
         cv2.HOUGH_GRADIENT,
         dp=1.2,
         minDist=max(40, min(ch, cw) // 4),
-        param1=90,
-        param2=28,
+        param1=param1,
+        param2=26,
         minRadius=min_r,
         maxRadius=max_r,
     )
@@ -186,12 +196,34 @@ def _bright_blob_plates(
 ) -> list[Detection]:
     hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
     sat, val = hsv[:, :, 1], hsv[:, :, 2]
-    # White / cream / pale plates on a darker table.
-    mask = ((val >= 145) & (sat <= 90)).astype(np.uint8) * 255
+    v_med = float(np.median(val))
+    # Absolute cream-ware floor plus a relative lift so dim rooms still work
+    # after CLAHE (median rises; pale ware stays above the table).
+    pale_floor = max(118, min(168, v_med + 48))
+    mask = ((val >= pale_floor) & (sat <= 100)).astype(np.uint8) * 255
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (11, 11))
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=2)
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=1)
     return _detections_from_mask(mask, crop, ox, oy, min_area, max_area, base_conf=0.62)
+
+
+def _tray_plates(
+    crop: np.ndarray, ox: int, oy: int, min_area: int, max_area: int
+) -> list[Detection]:
+    """Dark or coloured cafeteria trays — the white-blob path misses these."""
+    hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
+    sat, val = hsv[:, :, 1].astype(np.float32), hsv[:, :, 2].astype(np.float32)
+    v_med = float(np.median(val))
+    # Tray sits between a dark table and a highlight; coloured plastic is sat.
+    mid = (val > max(28.0, v_med * 0.45)) & (val < min(155.0, v_med + 70.0))
+    coloured = sat >= 38
+    mask = ((mid & coloured) | ((val < 130) & (sat >= 50) & (val > 35))).astype(np.uint8) * 255
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9))
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=2)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=1)
+    return _detections_from_mask(
+        mask, crop, ox, oy, min_area, max_area, base_conf=0.56, prefer_rect=True
+    )
 
 
 def _contour_plates(
@@ -199,7 +231,10 @@ def _contour_plates(
 ) -> list[Detection]:
     gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
     blur = cv2.GaussianBlur(gray, (7, 7), 0)
-    edges = cv2.Canny(blur, 40, 130)
+    med = float(np.median(blur))
+    lo = int(max(20, 0.5 * med))
+    hi = int(min(180, 1.5 * med + 20))
+    edges = cv2.Canny(blur, lo, hi)
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
     closed = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel, iterations=2)
     return _detections_from_mask(closed, crop, ox, oy, min_area, max_area, base_conf=0.50)
@@ -213,6 +248,7 @@ def _detections_from_mask(
     min_area: int,
     max_area: int,
     base_conf: float,
+    prefer_rect: bool = False,
 ) -> list[Detection]:
     ch, cw = crop.shape[:2]
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -229,9 +265,12 @@ def _detections_from_mask(
         if bw < 24 or bh < 24:
             continue
         aspect = bw / float(bh)
-        # Circles / ellipses, or cafeteria trays that are roughly rectangular.
-        tray_like = 0.55 <= aspect <= 2.2 and area >= min_area * 1.2
-        if circularity < 0.35 and not tray_like:
+        fill = area / float(max(bw * bh, 1))
+        tray_like = 0.55 <= aspect <= 2.4 and area >= min_area * 1.15 and fill >= 0.45
+        if prefer_rect:
+            if not (0.50 <= aspect <= 2.6 and fill >= 0.40 and circularity >= 0.18):
+                continue
+        elif circularity < 0.35 and not tray_like:
             continue
         pad = int(0.04 * max(bw, bh))
         x1, y1, x2, y2 = _clip_box(x - pad, y - pad, x + bw + pad, y + bh + pad, cw, ch)
@@ -247,10 +286,11 @@ def _detections_from_mask(
 
 def classify_waste_visual(plate_crop: np.ndarray) -> WasteResult:
     """
-    Estimate leftover food from colour occupancy on a plate crop.
+    Estimate leftover food from residual vs the plate's own colour.
 
-    Scores only the inner ellipse (not the table or plate rim) after a
-    light CLAHE pass so cafeteria lighting changes move coverage less.
+    Rim annulus = empty-ware colour. Inner ellipse pixels that deviate in Lab
+    (or have texture / chroma) are leftovers. This survives dark trays and
+    cafeteria lighting better than a global saturation threshold.
     """
     if plate_crop is None or plate_crop.size == 0 or plate_crop.ndim < 2:
         return WasteResult(
@@ -261,28 +301,59 @@ def classify_waste_visual(plate_crop: np.ndarray) -> WasteResult:
         )
 
     h, w = plate_crop.shape[:2]
-    inner = plate_crop
-    if h >= 16 and w >= 16:
-        lab = cv2.cvtColor(plate_crop, cv2.COLOR_BGR2LAB)
-        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-        lab[:, :, 0] = clahe.apply(lab[:, :, 0])
-        inner = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
+    if min(h, w) < 48:
+        plate_crop = cv2.resize(plate_crop, (160, 160), interpolation=cv2.INTER_LINEAR)
+        h, w = plate_crop.shape[:2]
 
-    mask = np.zeros((h, w), dtype=np.uint8)
+    lab = cv2.cvtColor(plate_crop, cv2.COLOR_BGR2LAB)
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    lab[:, :, 0] = clahe.apply(lab[:, :, 0])
+    inner = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
+
+    inner_mask = np.zeros((h, w), dtype=np.uint8)
+    ring_mask = np.zeros((h, w), dtype=np.uint8)
+    cx, cy = w // 2, h // 2
     cv2.ellipse(
-        mask,
-        (w // 2, h // 2),
-        (max(1, int(w * 0.38)), max(1, int(h * 0.38))),
+        inner_mask, (cx, cy),
+        (max(1, int(w * 0.40)), max(1, int(h * 0.40))),
         0, 0, 360, 255, -1,
     )
+    cv2.ellipse(
+        ring_mask, (cx, cy),
+        (max(2, int(w * 0.48)), max(2, int(h * 0.48))),
+        0, 0, 360, 255, -1,
+    )
+    cv2.ellipse(
+        ring_mask, (cx, cy),
+        (max(1, int(w * 0.40)), max(1, int(h * 0.40))),
+        0, 0, 360, 0, -1,
+    )
+
+    L = lab[:, :, 0].astype(np.float32)
+    A = lab[:, :, 1].astype(np.float32)
+    B = lab[:, :, 2].astype(np.float32)
+    ring = ring_mask > 0
+    if int(np.count_nonzero(ring)) < 30:
+        ring = inner_mask > 0
+    plate_l = float(np.median(L[ring]))
+    plate_a = float(np.median(A[ring]))
+    plate_b = float(np.median(B[ring]))
+    dist = np.sqrt((L - plate_l) ** 2 + (A - plate_a) ** 2 + (B - plate_b) ** 2)
+
     hsv = cv2.cvtColor(inner, cv2.COLOR_BGR2HSV)
     sat = hsv[:, :, 1].astype(np.float32)
     val = hsv[:, :, 2].astype(np.float32)
-
     colourful = (sat >= 42) & (val >= 35) & (val <= 245)
     dark_food = (sat >= 18) & (val < 115) & (val > 22)
-    food = (colourful | dark_food) & (mask > 0)
-    plate_pixels = int(np.count_nonzero(mask))
+    residual = dist >= 16.0
+    # Pale leftovers (rice, roti) on pale ware: local contrast, not chroma.
+    # Ignore CLAHE tile flicker on an already-uniform empty plate.
+    inner_px = inner_mask > 0
+    l_std = float(np.std(L[inner_px])) if int(np.count_nonzero(inner_px)) else 0.0
+    contrast = cv2.Laplacian(lab[:, :, 0], cv2.CV_32F, ksize=3)
+    textured = (np.abs(contrast) >= 14.0) & (l_std >= 8.0)
+    food = (residual | colourful | dark_food | textured) & inner_px
+    plate_pixels = int(np.count_nonzero(inner_mask))
     coverage = float(np.count_nonzero(food) / plate_pixels) if plate_pixels else 0.0
 
     if coverage < 0.055:

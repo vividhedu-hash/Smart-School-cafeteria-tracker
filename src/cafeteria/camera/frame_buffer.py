@@ -166,10 +166,11 @@ def build_camera(config) -> CameraBase:
     else:
         return WebcamCamera(
             source=config.source,
-            width=config.width,
-            height=config.height,
+            width=int(getattr(config, "width", 0) or 0),
+            height=int(getattr(config, "height", 0) or 0),
             fps=config.fps,
             camera_id="cam0",
             reconnect_delay=config.reconnect_delay_seconds,
             reconnect_max_attempts=config.reconnect_max_attempts,
+            max_capture_width=int(getattr(config, "max_capture_width", 1920) or 1920),
         )

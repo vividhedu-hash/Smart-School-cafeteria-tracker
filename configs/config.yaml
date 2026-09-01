@@ -9,10 +9,11 @@ application:
 
 camera:
   mode: webcam              # webcam | rtsp
-  source: 0                 # int for webcam index, string for RTSP URL
-  width: 1280               # 720p — enough for face recognition, 50% fewer pixels than 1080p
-  height: 720
+  source: auto              # auto = first working webcam (0, then 1, 2, 3)
+  width: auto               # auto = camera native, capped by max_capture_width
+  height: auto
   fps: 30
+  max_capture_width: 1920   # 4K sensors are stepped down so laptops stay real-time
   buffer_size: 3            # tighter buffer = lower latency
   reconnect_delay_seconds: 3.0
   reconnect_max_attempts: 10

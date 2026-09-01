@@ -26,8 +26,10 @@ def test_load_settings_reads_project_yaml_not_cwd_defaults(tmp_path, monkeypatch
         assert cfg.recognition.minimum_face_size == 24
         assert cfg.recognition.identify_face_size == 48
         assert cfg.application.api_port == 8765
-        assert cfg.camera.width == 1280
-        assert cfg.camera.height == 720
+        assert cfg.camera.width == 0
+        assert cfg.camera.height == 0
+        assert cfg.camera.source == "auto"
+        assert cfg.camera.max_capture_width == 1920
         assert cfg.models.plate.allow_coco_fallback is False
         assert cfg.models.plate.allow_visual_fallback is True
         assert cfg.models.waste.allow_visual_fallback is True

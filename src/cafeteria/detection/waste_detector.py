@@ -152,6 +152,11 @@ class WasteDetector:
         if plate_crop is None or plate_crop.size == 0:
             raise ValueError("Empty plate crop passed to WasteDetector.classify()")
 
+        h, w = plate_crop.shape[:2]
+        if min(h, w) < 160:
+            import cv2
+            plate_crop = cv2.resize(plate_crop, (224, 224), interpolation=cv2.INTER_LINEAR)
+
         if self.visual_mode:
             from cafeteria.detection.visual import classify_waste_visual
             return classify_waste_visual(plate_crop)
@@ -160,6 +165,7 @@ class WasteDetector:
             plate_crop,
             device=self._device,
             verbose=False,
+            imgsz=224,
         )
 
         if not results or results[0].probs is None:
