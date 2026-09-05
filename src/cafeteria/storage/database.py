@@ -34,34 +34,56 @@ def _apply_pragmas(dbapi_connection, connection_record):
     cursor.close()
 
 
-def init_db(db_path: str | Path) -> None:
+def init_db(
+    db_path: str | Path | None = None,
+    database_url: Optional[str] = None,
+) -> None:
     """
-    Initialize the SQLite database and create all tables.
-
+    Initialize the database engine and create all tables.
+    Supports PostgreSQL (Supabase, RDS, Neon) and SQLite WAL mode.
     Safe to call multiple times (idempotent).
 
     Args:
-        db_path: Path to the SQLite database file.
+        db_path: Optional path to SQLite database file.
+        database_url: Optional full SQLAlchemy connection string
+                      (e.g. postgresql://user:pass@host:5432/dbname).
+                      Falls back to DATABASE_URL environment variable if set.
     """
     global _engine, _SessionLocal
 
-    db_path = Path(db_path)
-    db_path.parent.mkdir(parents=True, exist_ok=True)
+    url = database_url or os.environ.get("DATABASE_URL")
 
-    connection_str = f"sqlite:///{db_path.as_posix()}"
+    if url and (url.startswith("postgresql://") or url.startswith("postgres://")):
+        # Fix legacy postgres:// schema if returned by some providers like Heroku/Supabase
+        if url.startswith("postgres://"):
+            url = "postgresql://" + url[len("postgres://"):]
 
-    _engine = create_engine(
-        connection_str,
-        connect_args={
-            "check_same_thread": False,
-            "timeout": 30,
-        },
-        echo=False,
-        pool_pre_ping=True,
-    )
+        _engine = create_engine(
+            url,
+            pool_size=10,
+            max_overflow=20,
+            pool_pre_ping=True,
+            echo=False,
+        )
+        logger.info("Database initialized with PostgreSQL connection pool")
 
-    # Apply WAL mode and other pragmas on every connection
-    event.listen(_engine, "connect", _apply_pragmas)
+    else:
+        # SQLite fallback
+        target_path = Path(db_path) if db_path else Path("database/cafeteria.db")
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        connection_str = f"sqlite:///{target_path.as_posix()}"
+
+        _engine = create_engine(
+            connection_str,
+            connect_args={
+                "check_same_thread": False,
+                "timeout": 30,
+            },
+            echo=False,
+            pool_pre_ping=True,
+        )
+        event.listen(_engine, "connect", _apply_pragmas)
+        logger.info("Database initialized at %s", target_path)
 
     # Create all tables
     Base.metadata.create_all(bind=_engine)
@@ -72,8 +94,6 @@ def init_db(db_path: str | Path) -> None:
         autoflush=False,
         expire_on_commit=False,
     )
-
-    logger.info("Database initialized at %s", db_path)
 
 
 def get_session() -> Session:

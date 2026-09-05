@@ -30,19 +30,20 @@ def ensure_runtime_storage(cfg, *, sync_enrollments: bool = True) -> dict[str, A
     Returns:
         Dict with db_path, created, ok, persons_synced.
     """
+    db_url = getattr(cfg.storage, "database_url", None)
     db_path = Path(cfg.project_root) / cfg.storage.database
-    existed = db_path.exists()
-    init_db(db_path)
+    existed = db_path.exists() or (db_url is not None)
+    init_db(db_path=db_path, database_url=db_url)
     ok = db_health_check()
     synced = 0
     if sync_enrollments:
         synced = _sync_enrollments(cfg)
     if not existed:
-        logger.info("Created database at %s", db_path)
+        logger.info("Created database at %s", db_url or db_path)
     elif not ok:
-        logger.error("Database health check failed at %s", db_path)
+        logger.error("Database health check failed at %s", db_url or db_path)
     return {
-        "db_path": str(db_path),
+        "db_path": str(db_url or db_path),
         "created": not existed,
         "ok": ok,
         "persons_synced": synced,

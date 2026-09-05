@@ -182,14 +182,21 @@ def _render_identity(state_data: dict) -> None:
         return
 
     if live.get("approaching"):
-        st.markdown("""
+        tracking = bool(live.get("moving"))
+        hint = (
+            "Tracking walk-past — identity holds while they move"
+            if tracking
+            else "Face found — walk closer to scan"
+        )
+        badge = "TRACKING" if tracking else "LOCKING"
+        st.markdown(f"""
         <div class="id-card locking">
             <div style="font-size:3rem">🎯</div>
             <div style="margin:14px 0 8px">
                 <span class="scan-pulse"></span>
-                <span style="color:#7dd3fc;font-weight:600;">Face found — walk closer to scan</span>
+                <span style="color:#7dd3fc;font-weight:600;">{hint}</span>
             </div>
-            <span class="id-badge badge-locking">LOCKING</span>
+            <span class="id-badge badge-locking">{badge}</span>
         </div>
         """, unsafe_allow_html=True)
         return

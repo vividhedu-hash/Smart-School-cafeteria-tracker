@@ -50,6 +50,8 @@ def draw_debug_overlay(
     latency_ms: float = 0.0,
     roi_cfg=None,
     debug: bool = True,
+    sessions: list | None = None,
+    tracks: list | None = None,
 ) -> np.ndarray:
     """Draw debug information on a copy of the frame."""
     if not debug:
@@ -57,6 +59,33 @@ def draw_debug_overlay(
 
     frame = image.copy()
     h, w = frame.shape[:2]
+
+    # Draw moving person-plate binding sessions
+    if sessions:
+        for s in sessions:
+            p_box = getattr(s, "person_bbox", None)
+            l_box = getattr(s, "plate_bbox", None)
+            if p_box and l_box:
+                cx_p = int((p_box[0] + p_box[2]) / 2)
+                cy_p = int((p_box[1] + p_box[3]) / 2)
+                cx_l = int((l_box[0] + l_box[2]) / 2)
+                cy_l = int((l_box[1] + l_box[3]) / 2)
+
+                # Kinematic binding line
+                cv2.line(frame, (cx_p, cy_p), (cx_l, cy_l), (255, 255, 0), 2, cv2.LINE_AA)
+                mid_x = (cx_p + cx_l) // 2
+                mid_y = (cy_p + cy_l) // 2
+                cv2.circle(frame, (mid_x, mid_y), 4, (0, 255, 255), -1)
+
+                vx = getattr(s, "velocity_x", 0.0)
+                vy = getattr(s, "velocity_y", 0.0)
+                speed = float(np.hypot(vx, vy))
+                sid = getattr(s, "session_id", "SES")
+                cv2.putText(
+                    frame, f"LINKED {sid} ({speed:.0f}px/s)",
+                    (mid_x + 8, mid_y),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 0), 1, cv2.LINE_AA,
+                )
 
     if roi_cfg:
         p = roi_cfg.plate
@@ -70,9 +99,14 @@ def draw_debug_overlay(
 
     bbox = face_match_field(face_match, "bbox")
     if bbox:
+        walking = bool(face_match_field(face_match, "moving", False))
         if face_match_field(face_match, "is_known"):
             color = (60, 220, 80)
-            label = str(face_match_field(face_match, "person_name") or "IDENTIFIED")
+            name = str(face_match_field(face_match, "person_name") or "IDENTIFIED")
+            label = f"{name}  WALKING" if walking else name
+        elif walking:
+            color = (0, 200, 255)
+            label = "TRACKING"
         elif face_match_field(face_match, "approaching"):
             color = (220, 180, 40)
             label = "LOCKING"

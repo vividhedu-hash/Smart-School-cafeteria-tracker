@@ -180,3 +180,30 @@ class ModelVersion(Base):
 
     def __repr__(self) -> str:
         return f"<ModelVersion task={self.task!r} version={self.version!r} active={self.is_active}>"
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Dataset Image (Training dataset management in database)
+# ──────────────────────────────────────────────────────────────────────────────
+
+class DatasetImage(Base):
+    __tablename__ = "dataset_images"
+
+    id          = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    task        = Column(String, nullable=False, index=True)        # "plate" | "waste"
+    label       = Column(String, nullable=False, index=True)        # "plate" | "EMPTY" | "LOW_WASTE" | "MEDIUM_WASTE" | "HIGH_WASTE"
+    split       = Column(String, nullable=False, default="train")   # "train" | "val" | "test"
+    image_path  = Column(String, nullable=False)                    # local file path or cloud URL
+    image_hash  = Column(String, nullable=True, index=True)         # MD5 hash for duplicate prevention
+    bboxes_json = Column(Text, nullable=True)                       # JSON list of normalized bounding boxes
+    source      = Column(String, nullable=False, default="manual")  # "web", "upload", "camera", "live"
+    is_verified = Column(Boolean, default=False, index=True)
+    created_at  = Column(Float, nullable=False, default=time.time)
+
+    __table_args__ = (
+        Index("ix_dataset_images_task_label", "task", "label"),
+        Index("ix_dataset_images_task_split", "task", "split"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<DatasetImage task={self.task!r} label={self.label!r} split={self.split!r}>"

@@ -14,7 +14,7 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from cafeteria.storage.models import (
-    ModelVersion, Person, ReviewEntry, Transaction,
+    DatasetImage, ModelVersion, Person, ReviewEntry, Transaction,
     TransactionStatus, WasteStatus,
 )
 from cafeteria.utils.logging import get_logger
@@ -386,3 +386,118 @@ class ModelVersionRepository:
         """Return the next version string e.g. 'v003'."""
         versions = self.get_all(task)
         return f"v{len(versions) + 1:03d}"
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Dataset image repository (Database-backed dataset management)
+# ──────────────────────────────────────────────────────────────────────────────
+
+class DatasetImageRepository:
+    def __init__(self, session: Session) -> None:
+        self._db = session
+
+    def add_image(
+        self,
+        task: str,
+        label: str,
+        image_path: str,
+        split: str = "train",
+        image_hash: Optional[str] = None,
+        bboxes_json: Optional[str] = None,
+        source: str = "manual",
+        is_verified: bool = False,
+    ) -> DatasetImage:
+        # Check duplicate hash per task if provided
+        if image_hash:
+            existing = self.get_by_hash(image_hash, task=task)
+            if existing:
+                return existing
+
+        img = DatasetImage(
+            id=str(uuid.uuid4()),
+            task=task,
+            label=label,
+            split=split,
+            image_path=image_path,
+            image_hash=image_hash,
+            bboxes_json=bboxes_json,
+            source=source,
+            is_verified=is_verified,
+            created_at=time.time(),
+        )
+        self._db.add(img)
+        self._db.flush()
+        return img
+
+    def get_by_id(self, image_id: str) -> Optional[DatasetImage]:
+        return self._db.query(DatasetImage).filter(DatasetImage.id == image_id).first()
+
+    def get_by_hash(self, image_hash: str, task: Optional[str] = None) -> Optional[DatasetImage]:
+        q = self._db.query(DatasetImage).filter(DatasetImage.image_hash == image_hash)
+        if task:
+            q = q.filter(DatasetImage.task == task)
+        return q.first()
+
+    def get_counts(self, task: Optional[str] = None) -> dict[str, int]:
+        """Return image counts grouped by label."""
+        query = self._db.query(DatasetImage.label)
+        if task:
+            query = query.filter(DatasetImage.task == task)
+        from sqlalchemy import func
+        counts = (
+            self._db.query(DatasetImage.label, func.count(DatasetImage.id))
+            .filter(DatasetImage.task == task if task else True)
+            .group_by(DatasetImage.label)
+            .all()
+        )
+        return {label: count for label, count in counts}
+
+    def count(self, task: Optional[str] = None, label: Optional[str] = None) -> int:
+        q = self._db.query(DatasetImage)
+        if task:
+            q = q.filter(DatasetImage.task == task)
+        if label:
+            q = q.filter(DatasetImage.label == label)
+        return q.count()
+
+    def list_images(
+        self,
+        task: Optional[str] = None,
+        split: Optional[str] = None,
+        label: Optional[str] = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[DatasetImage]:
+        q = self._db.query(DatasetImage)
+        if task:
+            q = q.filter(DatasetImage.task == task)
+        if split:
+            q = q.filter(DatasetImage.split == split)
+        if label:
+            q = q.filter(DatasetImage.label == label)
+        return q.order_by(DatasetImage.created_at.desc()).offset(offset).limit(limit).all()
+
+    def delete(self, image_id: str) -> bool:
+        img = self.get_by_id(image_id)
+        if img:
+            self._db.delete(img)
+            self._db.flush()
+            return True
+        return False
+
+    def verify(
+        self,
+        image_id: str,
+        label: Optional[str] = None,
+        bboxes_json: Optional[str] = None,
+    ) -> bool:
+        img = self.get_by_id(image_id)
+        if img:
+            img.is_verified = True
+            if label:
+                img.label = label
+            if bboxes_json is not None:
+                img.bboxes_json = bboxes_json
+            self._db.flush()
+            return True
+        return False

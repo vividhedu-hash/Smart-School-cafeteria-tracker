@@ -158,14 +158,15 @@ class RecognitionSettings(BaseModel):
     similarity_threshold: float = 0.52
     frames_to_vote: int = 5
     minimum_face_size: int = 24
-    identify_face_size: int = 48
+    identify_face_size: int = 40
     max_event_duration_seconds: float = 4.0
     embedding_dir: str = "data/enrollment"
     det_size: list[int] = Field(default_factory=lambda: [480, 480])
-    det_thresh: float = 0.42
+    det_thresh: float = 0.40
     infer_max_width: int = 640
     bbox_hold_frames: int = 12
-    bbox_hold_seconds: float = 0.45
+    bbox_hold_seconds: float = 0.90
+    motion_pad_ratio: float = 0.90
 
 
 class EventSettings(BaseModel):
@@ -177,6 +178,7 @@ class EventSettings(BaseModel):
 
 class StorageSettings(BaseModel):
     database: str = "database/cafeteria.db"
+    database_url: Optional[str] = None  # e.g. postgresql://user:pass@host:5432/dbname (Supabase / Postgres)
     captures: str = "data/captures"
     review_queue: str = "data/review_queue"
     datasets: str = "data/datasets"

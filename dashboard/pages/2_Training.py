@@ -1072,6 +1072,25 @@ with tab_plate:
 with tab_train:
     st.subheader("🚀 Model training")
 
+    # Configured Database Integration Info
+    import os as _os
+    _db_url = getattr(cfg.storage, "database_url", None) or _os.environ.get("DATABASE_URL")
+    if _db_url:
+        _db_type = "PostgreSQL / Supabase (Cloud Linked)"
+        _db_disp = _db_url.split("@")[-1] if "@" in _db_url else _db_url
+    else:
+        _db_type = "Local SQLite WAL (Ready to link Supabase/PostgreSQL)"
+        _db_disp = str(cfg.project_root / cfg.storage.database)
+
+    with st.expander("🔗 Linked Database Configuration (Supabase / Postgres / SQLite)", expanded=False):
+        st.markdown(f"**Current Database Type:** `{_db_type}`")
+        st.markdown(f"**Target:** `{_db_disp}`")
+        st.caption(
+            "To connect your own **Supabase / PostgreSQL** cloud database, set "
+            "`DATABASE_URL=postgresql://user:password@host:5432/dbname` in your `.env` file or `configs/config.yaml`. "
+            "You can manage database training images via `python scripts/db_manage.py` and run training with `python scripts/train_with_db.py`."
+        )
+
     task_options = {"Waste classification": "waste", "Plate detection": "plate"}
     task_label   = st.selectbox("Training task", list(task_options.keys()), key="train_task")
     task         = task_options[task_label]

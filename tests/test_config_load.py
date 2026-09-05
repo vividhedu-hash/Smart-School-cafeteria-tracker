@@ -24,7 +24,10 @@ def test_load_settings_reads_project_yaml_not_cwd_defaults(tmp_path, monkeypatch
         assert list(cfg.recognition.det_size) == [320, 320]
         assert cfg.recognition.similarity_threshold == 0.52
         assert cfg.recognition.minimum_face_size == 24
-        assert cfg.recognition.identify_face_size == 48
+        assert cfg.recognition.identify_face_size == 40
+        assert cfg.recognition.bbox_hold_seconds == 0.90
+        assert cfg.recognition.motion_pad_ratio == 0.90
+        assert cfg.recognition.det_thresh == 0.40
         assert cfg.application.api_port == 8765
         assert cfg.camera.width == 0
         assert cfg.camera.height == 0

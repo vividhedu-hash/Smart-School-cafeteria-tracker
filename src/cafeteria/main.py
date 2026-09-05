@@ -38,15 +38,9 @@ from cafeteria.camera.frame_buffer import FrameBuffer, build_camera
 from cafeteria.detection.plate_detector import PlateDetector, ModelNotFoundError
 from cafeteria.detection.waste_detector import WasteDetector
 from cafeteria.recognition.face_engine import FaceEngine
-from cafeteria.recognition.matcher import EmbeddingMatcher, match_field
-from cafeteria.recognition.live_match import (
-    box_iou,
-    face_search_crop,
-    face_size_px,
-    persist_bbox,
-    scale_bbox_to_frame,
-    smooth_bbox,
-)
+from cafeteria.recognition.matcher import EmbeddingMatcher
+from cafeteria.recognition.walkpast import WalkPastTracker
+from cafeteria.tracking import MultiObjectTracker, PersonPlateAssociator
 from cafeteria.monitoring.overlay import draw_debug_overlay
 from cafeteria.monitoring.health import component_status, compute_readiness
 from cafeteria.pipeline.state_machine import StateMachine
@@ -180,7 +174,7 @@ def run_engine() -> None:
             model_dir=project_root / "models" / "face",
             det_size=tuple(cfg.recognition.det_size),
             device=cfg.device,
-            det_thresh=float(getattr(cfg.recognition, "det_thresh", 0.42) or 0.42),
+            det_thresh=float(getattr(cfg.recognition, "det_thresh", 0.40) or 0.40),
         )
         face_engine.load()
     except Exception as e:
@@ -277,25 +271,26 @@ def run_engine() -> None:
     _face_inference_frame: np.ndarray | None = None  # frame queued for inference
     _face_frame_lock = threading.Lock()
     _face_thread_stop = threading.Event()
-    _held_bbox = None
-    _held_until = 0.0
-    _held_identity: dict | None = None
-    _face_infer_id = 0
     _last_face_infer_at = 0.0
-
-    def _face_inference_worker():
-        """InsightFace walk-past lock: gated search, persist bbox, identify when large."""
-        nonlocal _face_result, _face_inference_frame
-        nonlocal _held_bbox, _held_until, _held_identity, _face_infer_id, _last_face_infer_at
-        lock_min = int(getattr(cfg.recognition, "minimum_face_size", 24) or 24)
-        identify_min = int(getattr(cfg.recognition, "identify_face_size", 48) or 48)
-        max_hold = int(getattr(cfg.recognition, "bbox_hold_frames", 12) or 12)
-        hold_s = float(getattr(cfg.recognition, "bbox_hold_seconds", 0.45) or 0.45)
-        infer_max = int(getattr(cfg.recognition, "infer_max_width", 640) or 640)
-        face_roi = {
+    _walk_tracker = WalkPastTracker(
+        lock_min=int(getattr(cfg.recognition, "minimum_face_size", 24) or 24),
+        identify_min=int(getattr(cfg.recognition, "identify_face_size", 40) or 40),
+        hold_seconds=float(getattr(cfg.recognition, "bbox_hold_seconds", 0.90) or 0.90),
+        infer_max_width=int(getattr(cfg.recognition, "infer_max_width", 640) or 640),
+        face_roi={
             "x1": cfg.roi.face.x1, "y1": cfg.roi.face.y1,
             "x2": cfg.roi.face.x2, "y2": cfg.roi.face.y2,
-        }
+        },
+        base_pad_ratio=float(getattr(cfg.recognition, "motion_pad_ratio", 0.90) or 0.90),
+    )
+
+    _multi_tracker = MultiObjectTracker(max_age=15, min_hits=1, iou_threshold=0.15)
+    _associator = PersonPlateAssociator(session_timeout_seconds=2.5)
+    _active_sessions: list = []
+
+    def _face_inference_worker():
+        """Walk-past lock: velocity coast, wide search, keep ID through blur."""
+        nonlocal _face_result, _face_inference_frame, _last_face_infer_at
         while not _face_thread_stop.is_set():
             with _face_frame_lock:
                 img = _face_inference_frame
@@ -304,100 +299,17 @@ def run_engine() -> None:
                 time.sleep(0.005)
                 continue
             now_m = time.monotonic()
-            locked = _held_bbox is not None and now_m < _held_until
-            min_interval = 0.28 if (locked and _held_identity) else 0.08
-            if now_m - _last_face_infer_at < min_interval:
+            if not _walk_tracker.should_infer(now_m, _last_face_infer_at):
                 continue
             _last_face_infer_at = now_m
             try:
-                import cv2 as _cv2
                 _t0 = time.perf_counter()
-                h, w = img.shape[:2]
-                search, ox, oy = face_search_crop(
-                    img, held_bbox=_held_bbox, roi=face_roi
+                result = _walk_tracker.step(
+                    img,
+                    face_engine.get_faces,
+                    now_m,
+                    matcher=matcher,
                 )
-                sh, sw = search.shape[:2]
-                if sw > infer_max:
-                    small = _cv2.resize(
-                        search,
-                        (infer_max, max(1, int(sh * infer_max / sw))),
-                        interpolation=_cv2.INTER_LINEAR,
-                    )
-                else:
-                    small = search
-                faces = face_engine.get_faces(small)
-                result = None
-                if faces:
-                    face = max(
-                        faces,
-                        key=lambda f: (f["bbox"][2] - f["bbox"][0])
-                        * (f["bbox"][3] - f["bbox"][1]),
-                    )
-                    raw_in_search = scale_bbox_to_frame(
-                        face["bbox"], small.shape[1], small.shape[0],
-                        search.shape[1], search.shape[0],
-                    )
-                    raw_bbox = None
-                    if raw_in_search:
-                        raw_bbox = [
-                            raw_in_search[0] + ox,
-                            raw_in_search[1] + oy,
-                            raw_in_search[2] + ox,
-                            raw_in_search[3] + oy,
-                        ]
-                    if _held_bbox is not None and raw_bbox is not None and box_iou(_held_bbox, raw_bbox) < 0.15:
-                        _held_identity = None
-                    bbox = smooth_bbox(_held_bbox, raw_bbox, alpha=0.45)
-                    bbox, _ = persist_bbox(bbox, bbox, 0, max_hold)
-                    _held_bbox = bbox
-                    _held_until = now_m + hold_s
-                    fw, fh = face_size_px(bbox)
-                    det_score = round(float(face["det_score"]), 3)
-                    approaching = fw < identify_min or fh < identify_min
-                    too_small = fw < lock_min or fh < lock_min
-                    _face_infer_id += 1
-                    result = {
-                        "person_id": None,
-                        "person_name": None,
-                        "similarity": 0.0,
-                        "is_known": False,
-                        "bbox": bbox,
-                        "det_score": det_score,
-                        "approaching": approaching,
-                        "infer_id": _face_infer_id,
-                    }
-                    if too_small:
-                        result["approaching"] = True
-                    elif not approaching:
-                        m = matcher.match(face["embedding"])
-                        result["person_id"] = m.person_id
-                        result["person_name"] = m.person_name
-                        result["similarity"] = round(m.similarity, 3)
-                        result["is_known"] = m.is_known
-                        _held_identity = {
-                            "person_id": result["person_id"],
-                            "person_name": result["person_name"],
-                            "similarity": result["similarity"],
-                            "is_known": result["is_known"],
-                        }
-                    else:
-                        result["similarity"] = 0.0
-                else:
-                    if now_m < _held_until and _held_bbox is not None:
-                        result = {
-                            "person_id": (_held_identity or {}).get("person_id"),
-                            "person_name": (_held_identity or {}).get("person_name"),
-                            "similarity": (_held_identity or {}).get("similarity", 0.0),
-                            "is_known": bool((_held_identity or {}).get("is_known")),
-                            "bbox": _held_bbox,
-                            "det_score": None,
-                            "approaching": not bool((_held_identity or {}).get("is_known")),
-                            "infer_id": _face_infer_id,
-                        }
-                    else:
-                        _held_bbox = None
-                        _held_identity = None
-                        result = None
                 face_ms = (time.perf_counter() - _t0) * 1000.0
                 with _face_result_lock:
                     _face_result = result
@@ -465,6 +377,11 @@ def run_engine() -> None:
                 "url": f"http://{cfg.application.api_host}:{cfg.application.api_port}",
             },
             "buffer": frame_buffer.stats,
+            "tracking": {
+                "active_sessions": len(_active_sessions),
+                "tracked_people": len(_multi_tracker.get_tracks_by_class("person")),
+                "tracked_plates": len(_multi_tracker.get_tracks_by_class("plate")),
+            },
         }
 
     def _ensure_face_thread(should_run: bool) -> None:
@@ -582,7 +499,8 @@ def run_engine() -> None:
                     _write_debug_frame(frame.image, frames_dir, debug_display,
                                        state_machine.state.value, fps,
                                        current_plate_det, current_waste_result,
-                                       current_face_match, cfg.roi)
+                                       current_face_match, cfg.roi,
+                                       sessions=_active_sessions, tracks=_multi_tracker.trackers)
                 metrics.set_state(state_machine.state.value)
                 metrics.write_state(_runtime_extra())
                 continue
@@ -617,6 +535,21 @@ def run_engine() -> None:
                     "latency_ms": completed.processing_latency_ms,
                 })
 
+            # ── Multi-Target Tracking & Kinematic Association ──────────
+            trk_dets = []
+            if current_face_match and current_face_match.get("bbox"):
+                fb = current_face_match["bbox"]
+                fconf = float(current_face_match.get("similarity", 0.9) or 0.9)
+                trk_dets.append((fb, fconf, "person"))
+            if current_plate_det:
+                pb = (current_plate_det.x1, current_plate_det.y1, current_plate_det.x2, current_plate_det.y2)
+                trk_dets.append((pb, current_plate_det.confidence, "plate"))
+
+            _multi_tracker.step(trk_dets, dt=1.0 / max(1.0, fps))
+            p_trks = _multi_tracker.get_tracks_by_class("person")
+            l_trks = _multi_tracker.get_tracks_by_class("plate")
+            _active_sessions = _associator.associate(p_trks, l_trks, frame=frame.image)
+
             # ── Metrics / state ──────────────────────────────────────────
             metrics.set_state(state_machine.state.value)
             metrics.write_state(_runtime_extra())
@@ -627,7 +560,8 @@ def run_engine() -> None:
                 _write_debug_frame(frame.image, frames_dir, debug_display,
                                    state_machine.state.value, fps,
                                    current_plate_det, current_waste_result,
-                                   current_face_match, cfg.roi)
+                                   current_face_match, cfg.roi,
+                                   sessions=_active_sessions, tracks=_multi_tracker.trackers)
 
             if debug_mode and debug_display:
                 annotated = draw_debug_overlay(
@@ -640,6 +574,8 @@ def run_engine() -> None:
                     latency_ms=0.0,
                     roi_cfg=cfg.roi,
                     debug=True,
+                    sessions=_active_sessions,
+                    tracks=_multi_tracker.trackers,
                 )
                 cv2.imshow("Smart Cafeteria Waste Tracker (press Q to quit)", annotated)
                 key = cv2.waitKey(1) & 0xFF
@@ -684,13 +620,14 @@ def _write_raw_frame(image, frames_dir) -> None:
 
 
 def _write_debug_frame(image, frames_dir, debug, state, fps, plate_det,
-                       waste_result, face_match, roi_cfg):
+                       waste_result, face_match, roi_cfg, sessions=None, tracks=None):
     """Write annotated frame to data/frames/latest.jpg for dashboard."""
     annotated = draw_debug_overlay(
         image, state=state, fps=fps,
         plate_det=plate_det, waste_result=waste_result,
         face_match=face_match, latency_ms=0.0,
         roi_cfg=roi_cfg, debug=debug,
+        sessions=sessions, tracks=tracks,
     )
     try:
         cv2.imwrite(str(frames_dir / "latest.jpg"), annotated,
