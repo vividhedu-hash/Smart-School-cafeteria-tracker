@@ -146,6 +146,8 @@ class WasteModelTrainer:
         batch: int = 16,
         version: str,
         progress_callback: Optional[Callable[[dict], None]] = None,
+        augment_dataset: bool = True,
+        target_count_per_class: int = 20,
     ) -> TrainingResult:
         """
         Run a complete training session.
@@ -185,6 +187,17 @@ class WasteModelTrainer:
         with tempfile.TemporaryDirectory() as tmpdir:
             split_dir = Path(tmpdir) / "split"
             dataset_stats = dm.prepare_yolo_cls_dataset(split_dir)
+
+            if augment_dataset:
+                try:
+                    from cafeteria.training.augmentation import CafeteriaAugmentor
+                    train_dir = split_dir / "train"
+                    class_dirs = {cls: train_dir / cls for cls in WASTE_CLASSES if (train_dir / cls).exists()}
+                    augmentor = CafeteriaAugmentor()
+                    aug_count = augmentor.augment_dataset(class_dirs, target_count_per_class=target_count_per_class)
+                    logger.info("Augmented training split with %d synthetic cafeteria samples", aug_count)
+                except Exception as exc:
+                    logger.debug("Augmentation skipped: %s", exc)
 
             # Train
             try:

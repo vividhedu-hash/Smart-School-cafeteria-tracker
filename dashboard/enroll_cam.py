@@ -97,6 +97,10 @@ class EnrollStatus:
     mode: str          # "aligning" | "relaxed" | "manual"
     elapsed: float
     needs_help: bool   # no face found for a while — surface the alternatives
+    quality_score: float = 0.0
+    pose_label: str = "Frontal"
+    ipd_pixels: float = 0.0
+    iso_compliant: bool = False
 
 
 class EnrollCamera:
@@ -117,6 +121,10 @@ class EnrollCamera:
         self.done = False
         self.mode = "aligning"
         self.face_visible = False
+        self.quality_score: float = 0.0
+        self.pose_label: str = "Frontal"
+        self.ipd_pixels: float = 0.0
+        self.iso_compliant: bool = False
         self.started_at = time.monotonic()
         self._frame_provider = frame_provider
         self._first_face_at: Optional[float] = None
@@ -127,6 +135,8 @@ class EnrollCamera:
         self._cascade = cv2.CascadeClassifier(
             cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
         )
+        from cafeteria.recognition.quality import BiometricQualityAssessor
+        self._quality_assessor = BiometricQualityAssessor()
         self._thread = threading.Thread(target=self._run, daemon=True, name="enroll-cam")
         self._thread.start()
 
@@ -168,6 +178,10 @@ class EnrollCamera:
                 mode=self.mode,
                 elapsed=elapsed,
                 needs_help=needs_help,
+                quality_score=self.quality_score,
+                pose_label=self.pose_label,
+                ipd_pixels=self.ipd_pixels,
+                iso_compliant=self.iso_compliant,
             )
 
     def take_captures(self) -> list[np.ndarray]:
@@ -198,44 +212,43 @@ class EnrollCamera:
                 self.error = (
                     "Could not open the webcam from Python. Another app may be using it. "
                     "On macOS: System Settings → Privacy & Security → Camera → enable it "
-                    "for Terminal (or Cursor)."
+                    "for your terminal / IDE, or upload photos below."
                 )
-                self.hint = "Camera unavailable"
+                self.hint = "Camera not available"
             return
+
+        def _read_from_webcam():
+            ok, f = cap.read()
+            return f if ok else None
+
         try:
-            self._loop(read=lambda: self._read_from_capture(cap))
+            self._loop(read=_read_from_webcam)
         finally:
             cap.release()
 
-    def _read_from_capture(self, cap: cv2.VideoCapture) -> Optional[np.ndarray]:
-        ok, frame = cap.read()
-        return frame if ok and frame is not None else None
-
     def _read_from_provider(self) -> Optional[np.ndarray]:
-        try:
-            raw = self._frame_provider() if self._frame_provider else None
-        except Exception:
-            raw = None
-        if not raw:
+        if self._frame_provider is None:
             return None
-        buf = np.frombuffer(raw, np.uint8)
-        frame = cv2.imdecode(buf, cv2.IMREAD_COLOR)
-        return frame if frame is not None and frame.size else None
+        raw = self._frame_provider()
+        if raw is None:
+            return None
+        arr = np.frombuffer(raw, np.uint8)
+        return cv2.imdecode(arr, cv2.IMREAD_COLOR)
 
     # ── Capture loop ─────────────────────────────────────────────────────────
 
     def _loop(self, read: Callable[[], Optional[np.ndarray]]) -> None:
         borrowed = self._frame_provider is not None
+        empty_reads = 0
+        last_snap = 0.0
         good_since: Optional[float] = None
         last_good: Optional[float] = None
-        last_snap = 0.0
-        empty_reads = 0
 
-        while not self._stop.is_set() and not self.done:
+        while not self._stop.is_set():
             frame = read()
             if frame is None:
                 empty_reads += 1
-                if borrowed and empty_reads > 60:
+                if empty_reads > 50:
                     with self._lock:
                         self.error = (
                             "The engine stopped sending frames. Start the engine again, "
@@ -292,7 +305,7 @@ class EnrollCamera:
             self.mode = reason
             if n >= TARGET_FRAMES:
                 self.done = True
-                self.hint = "You’re in"
+                self.hint = "Enrollment Complete"
             elif reason == "relaxed":
                 self.hint = f"Capturing — {n}/{TARGET_FRAMES}"
             else:
@@ -334,7 +347,9 @@ class EnrollCamera:
         face = self._detect_face(frame)
         aligned = False
         hint = "Look towards the camera"
+        h, w = frame.shape[:2]
 
+        quality_report = None
         if face is not None:
             fx, fy, fw = face
             fill = fw / (OVAL_RX * 2)
@@ -344,12 +359,28 @@ class EnrollCamera:
             )
             size_ok = FILL_MIN < fill < FILL_MAX
             aligned = centered and size_ok
+
+            # Evaluate ISO Biometric Quality
+            bx1 = int(max(0, (fx - fw / 2) * w))
+            by1 = int(max(0, (fy - fw / 2) * h))
+            bx2 = int(min(w, (fx + fw / 2) * w))
+            by2 = int(min(h, (fy + fw / 2) * h))
+            quality_report = self._quality_assessor.evaluate(frame, [bx1, by1, bx2, by2])
+
+            with self._lock:
+                self.quality_score = quality_report.overall_score
+                self.pose_label = quality_report.pose_category.value.replace("_", " ").title()
+                self.ipd_pixels = quality_report.ipd_pixels
+                self.iso_compliant = quality_report.passed
+
             if not size_ok and fill <= FILL_MIN:
                 hint = "Come a bit closer"
             elif not size_ok:
                 hint = "Back up slightly"
             elif not centered:
                 hint = "Move into the oval"
+            elif quality_report.coaching_hint:
+                hint = quality_report.coaching_hint
             else:
                 hint = "Got you — hold still"
 
@@ -357,10 +388,13 @@ class EnrollCamera:
             if not self.done and not self.captures:
                 self.hint = hint
             n = len(self.captures)
+            q_score = self.quality_score
+            p_label = self.pose_label
+            ipd_px = self.ipd_pixels
+            iso_ok = self.iso_compliant
 
         # Preview is downscaled: the browser shows it at ~420 px wide, and a
         # full-res JPEG every tick is wasted bandwidth.
-        h, w = frame.shape[:2]
         if w > PREVIEW_WIDTH:
             ph = int(h * PREVIEW_WIDTH / w)
             vis = cv2.resize(frame, (PREVIEW_WIDTH, ph), interpolation=cv2.INTER_AREA)
@@ -373,19 +407,38 @@ class EnrollCamera:
         mask = np.zeros((vh, vw), np.uint8)
         cv2.ellipse(mask, (cx, cy), (rx, ry), 0, 0, 360, 255, -1)
         vis = np.where(mask[:, :, None] == 255, vis, (vis * 0.45).astype(np.uint8))
+
         colour = (
-            (52, 211, 153) if aligned
-            else (56, 189, 248) if face is not None
+            (52, 211, 153) if (aligned and iso_ok)
+            else (56, 189, 248) if (aligned or face is not None)
             else (100, 116, 139)
         )
         cv2.ellipse(vis, (cx, cy), (rx, ry), 0, 0, 360, colour, 3)
+
+        # Apple Face ID style dynamic circular tick progress
         if n:
+            sweep = int(360 * n / TARGET_FRAMES)
             cv2.ellipse(
                 vis, (cx, cy), (rx + 10, ry + 10), 0, -90,
-                -90 + int(360 * n / TARGET_FRAMES), (52, 211, 153), 4,
+                -90 + sweep, (52, 211, 153), 4,
             )
         # Mirror only what the operator sees; saved frames stay un-flipped.
-        return cv2.flip(vis, 1), aligned, face is not None
+        flipped = cv2.flip(vis, 1)
+
+        # Top Biometric HUD Bar
+        if face is not None:
+            hud_bg = (15, 23, 42)
+            cv2.rectangle(flipped, (12, 12), (vw - 12, 42), hud_bg, -1)
+            cv2.rectangle(flipped, (12, 12), (vw - 12, 42), (51, 65, 85), 1)
+            status_dot = (52, 211, 153) if iso_ok else (245, 158, 11)
+            cv2.circle(flipped, (26, 27), 4, status_dot, -1)
+            hud_text = f"ISO 19794-5 QUALITY: {int(q_score)}% | IPD: {int(ipd_px)}px | POSE: {p_label.upper()}"
+            cv2.putText(
+                flipped, hud_text, (38, 32),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.44, (226, 232, 240), 1, cv2.LINE_AA,
+            )
+
+        return flipped, aligned, face is not None
 
 
 _SESSIONS: dict[str, EnrollCamera] = {}

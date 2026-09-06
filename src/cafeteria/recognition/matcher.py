@@ -16,6 +16,7 @@ import numpy as np
 
 from cafeteria.recognition.live_match import face_match_as_dict as live_face_as_dict
 from cafeteria.recognition.live_match import face_match_field as match_field
+from cafeteria.recognition.quality import compute_pose_adaptive_threshold
 from cafeteria.utils.logging import get_logger
 
 logger = get_logger("recognition.matcher")
@@ -34,6 +35,7 @@ class MatchResult:
 class EmbeddingMatcher:
     """
     Nearest-neighbour identity matcher over enrolled ArcFace embeddings.
+    Supports multi-pose template galleries and pose-adaptive thresholding.
 
     Args:
         enrollment_dir:      Path to data/enrollment/.
@@ -50,8 +52,10 @@ class EmbeddingMatcher:
         self._root = Path(enrollment_dir)
         self._threshold = similarity_threshold
         self._top_n = top_n
-        self._embeddings: dict[str, np.ndarray] = {}   # person_id → embedding
-        self._names: dict[str, str] = {}               # person_id → name
+        self._embeddings: dict[str, np.ndarray] = {}         # person_id → master embedding
+        self._multi_embeddings: dict[str, np.ndarray] = {}   # person_id → (N, 512) pose gallery
+        self._initial_embeddings: dict[str, np.ndarray] = {} # drift-prevention anchor
+        self._names: dict[str, str] = {}                     # person_id → name
 
     def load_embeddings(self) -> int:
         """
@@ -100,6 +104,17 @@ class EmbeddingMatcher:
 
             self._embeddings[person_id] = embedding
             self._names[person_id] = name
+            self._initial_embeddings[person_id] = embedding.copy()
+
+            # Load multi-pose template gallery if present
+            multi_path = person_dir / "embeddings_multi.npy"
+            if multi_path.exists():
+                try:
+                    multi_embs = np.load(str(multi_path))
+                    if isinstance(multi_embs, np.ndarray) and len(multi_embs.shape) == 2:
+                        self._multi_embeddings[person_id] = multi_embs.astype(np.float32)
+                except Exception:
+                    pass
 
             json_path = person_dir / "embedding.json"
             if json_path.exists():
@@ -119,7 +134,11 @@ class EmbeddingMatcher:
             lock_tree(self._root)
         except Exception:
             pass
-        logger.info("Loaded %d enrolled embeddings", len(self._embeddings))
+        logger.info(
+            "Loaded %d enrolled embeddings (%d with multi-pose galleries)",
+            len(self._embeddings),
+            len(self._multi_embeddings),
+        )
         return len(self._embeddings)
 
     def reload(self) -> int:
@@ -134,12 +153,25 @@ class EmbeddingMatcher:
     def enrolled_ids(self) -> list[str]:
         return list(self._embeddings.keys())
 
-    def match(self, query_embedding: np.ndarray) -> MatchResult:
+    @property
+    def multi_embeddings(self) -> dict[str, np.ndarray]:
+        return self._multi_embeddings
+
+    def match(
+        self,
+        query_embedding: np.ndarray,
+        yaw: Optional[float] = None,
+        pitch: Optional[float] = None,
+    ) -> MatchResult:
         """
         Find the nearest enrolled identity for a query embedding.
 
+        Supports pose-adaptive confidence thresholding and multi-pose template galleries.
+
         Args:
             query_embedding: L2-normalised ArcFace embedding, shape (512,).
+            yaw: Optional detected head yaw in degrees.
+            pitch: Optional detected head pitch in degrees.
 
         Returns:
             MatchResult with the best match (or UNKNOWN if below threshold).
@@ -153,12 +185,28 @@ class EmbeddingMatcher:
                 candidates=[],
             )
 
-        # Compute cosine similarity (embeddings are already L2-normalised)
+        # Pose-adaptive thresholding
+        if yaw is not None and pitch is not None:
+            effective_threshold = compute_pose_adaptive_threshold(self._threshold, yaw, pitch)
+        else:
+            effective_threshold = self._threshold
+
+        # Compute cosine similarity
         scores = {}
         for pid, emb in self._embeddings.items():
-            sim = float(np.dot(query_embedding, emb))
-            # Clip to [0, 1] (can be slightly negative due to floating point)
-            scores[pid] = max(0.0, min(1.0, sim))
+            # 1. Master composite vector similarity
+            sim_master = float(np.dot(query_embedding, emb))
+            best_sim = sim_master
+
+            # 2. Multi-pose exemplar similarity (nearest pose match)
+            if pid in self._multi_embeddings:
+                multi = self._multi_embeddings[pid]
+                if len(multi) > 0:
+                    pose_sims = np.dot(multi, query_embedding)
+                    best_sim = max(sim_master, float(np.max(pose_sims)))
+
+            # Clip to [0, 1]
+            scores[pid] = max(0.0, min(1.0, best_sim))
 
         # Sort by similarity descending
         sorted_scores = sorted(scores.items(), key=lambda x: x[1], reverse=True)
@@ -175,7 +223,7 @@ class EmbeddingMatcher:
 
         best_pid, best_sim = sorted_scores[0]
 
-        if best_sim >= self._threshold:
+        if best_sim >= effective_threshold:
             return MatchResult(
                 person_id=best_pid,
                 person_name=self._names.get(best_pid, best_pid),
@@ -191,6 +239,78 @@ class EmbeddingMatcher:
             is_known=False,
             candidates=candidates,
         )
+
+    def adapt_template(
+        self,
+        person_id: str,
+        probe_embedding: np.ndarray,
+        similarity: float,
+        adaptation_rate: float = 0.05,
+    ) -> bool:
+        """
+        Continuous Online Template Adaptation with strict drift bounding (Big Tech standard).
+
+        When a verified person is recognized with high confidence (sim >= 0.82),
+        adaptively blends their gallery embedding to accommodate natural appearance shifts
+        without drifting away from the original enrollment anchor.
+        """
+        if person_id not in self._embeddings:
+            return False
+        if similarity < 0.82:
+            return False
+
+        current = self._embeddings[person_id]
+        initial = self._initial_embeddings.get(person_id, current)
+
+        # L2-normalize probe
+        probe = np.asarray(probe_embedding, dtype=np.float32)
+        p_norm = np.linalg.norm(probe)
+        if p_norm > 0:
+            probe = probe / p_norm
+
+        # Probe drift guard: ensure probe is consistent with the initial enrollment anchor
+        probe_sim = float(np.dot(probe, initial))
+        if probe_sim < 0.65:
+            logger.warning(
+                "Template adaptation rejected for %s (probe-to-anchor similarity %.3f < 0.65)",
+                person_id, probe_sim,
+            )
+            return False
+
+        # Exponential moving average blending
+        eta = max(0.01, min(0.15, adaptation_rate))
+        candidate = (1.0 - eta) * current + eta * probe
+        c_norm = np.linalg.norm(candidate)
+        if c_norm > 0:
+            candidate = candidate / c_norm
+
+        # Drift guard: ensure candidate hasn't drifted more than 30% from initial enrollment
+        drift_sim = float(np.dot(candidate, initial))
+        if drift_sim < 0.70:
+            logger.warning(
+                "Template adaptation rejected for %s (drift similarity %.3f < 0.70)",
+                person_id, drift_sim,
+            )
+            return False
+
+        # Apply update
+        self._embeddings[person_id] = candidate.astype(np.float32)
+
+        # Persist to disk
+        try:
+            emb_path = self._root / person_id / "embedding.npy"
+            if emb_path.parent.exists():
+                from cafeteria.recognition.crypto import save_embedding
+                save_embedding(emb_path, candidate.astype(np.float32))
+                logger.info(
+                    "Adaptively updated template for %s (sim: %.3f, drift: %.3f)",
+                    person_id, similarity, drift_sim,
+                )
+                return True
+        except Exception as exc:
+            logger.debug("Could not persist adapted template for %s: %s", person_id, exc)
+
+        return True
 
     def update_threshold(self, threshold: float) -> None:
         """Update the similarity threshold without reloading embeddings."""
@@ -277,3 +397,8 @@ class TemporalVoter:
             is_known=True,
             candidates=best_vote.candidates,
         )
+
+
+# Backward-compatible alias
+IdentityMatcher = EmbeddingMatcher
+

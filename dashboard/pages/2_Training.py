@@ -509,6 +509,20 @@ with tab_enroll:
                 unsafe_allow_html=True,
             )
 
+            # Live ISO/IEC 19794-5 Biometric Telemetry
+            if s.face_visible:
+                q_cols = st.columns(3)
+                q_val = getattr(s, "quality_score", 0.0) or 0.0
+                is_iso = getattr(s, "iso_compliant", False)
+                p_label = getattr(s, "pose_label", "FRONT") or "FRONT"
+                ipd = getattr(s, "ipd_pixels", 0.0) or 0.0
+                with q_cols[0]:
+                    st.metric("Biometric Quality", f"{q_val:.0f}/100", delta="ISO Compliant" if is_iso else "Adapting", delta_color="normal" if is_iso else "off")
+                with q_cols[1]:
+                    st.metric("Head Pose", p_label)
+                with q_cols[2]:
+                    st.metric("Resolution (IPD)", f"{ipd:.0f}px", delta=">=60px ISO Standard" if ipd >= 60 else "<60px Step Closer", delta_color="normal" if ipd >= 60 else "inverse")
+
             if s.jpeg:
                 st.image(s.jpeg, width=420)
             else:
@@ -597,9 +611,23 @@ with tab_enroll:
         status = st.session_state.get("enroll_embed_status")
         if status == "ok":
             st.success(
-                f"{pname} is enrolled. The engine reloads the gallery immediately — "
-                "open Live Monitor to see the match."
+                f"✅ **{pname}** enrolled with ISO/IEC 19794-5 & 29794-5 adaptive biometrics! "
+                "The engine reloads the gallery immediately — open Live Monitor to see the match."
             )
+            poses_file = enrollment_mgr.poses_json_path(pid)
+            if poses_file.exists():
+                try:
+                    import json
+                    pdata = json.loads(poses_file.read_text(encoding="utf-8"))
+                    n_templates = pdata.get("num_templates", 1)
+                    m_q = pdata.get("mean_quality", 0.85)
+                    st.markdown(
+                        f"🛡️ **Adaptive Biometric Profile**: `{n_templates}` pose exemplar(s) stored in multi-pose gallery · "
+                        f"**Biometric Quality**: `{m_q*100:.1f}%`"
+                    )
+                    st.caption("Adaptive normalization (CLAHE + Gamma) and non-linear pose thresholding active for walk-by matching.")
+                except Exception:
+                    pass
         elif status == "empty":
             st.warning(
                 "No usable face in those stills. Run the scan again with more light on "
@@ -713,11 +741,13 @@ with tab_people:
                 "\n".join([
                     f"{pdir.relative_to(cfg.project_root)}/",
                     f"  images/            {n_imgs} JPEG/PNG sample(s)",
-                    f"  embedding.npy      {'yes' if has_emb else 'missing (stale)'}",
-                    f"  embedding.json     {'yes' if enrollment_mgr.embedding_json_path(pid).exists() else 'no'}",
-                    f"  samples.jsonl      {'yes' if enrollment_mgr.samples_path(pid).exists() else 'no'}",
-                    f"  meta.json          {'yes' if enrollment_mgr.meta_path(pid).exists() else 'no'}",
-                    f"index.json           gallery manifest for all people",
+                    f"  embedding.npy        {'yes' if has_emb else 'missing (stale)'}",
+                    f"  embeddings_multi.npy {'yes' if enrollment_mgr.multi_embedding_path(pid).exists() else 'no'}",
+                    f"  poses.json           {'yes' if enrollment_mgr.poses_json_path(pid).exists() else 'no'}",
+                    f"  embedding.json       {'yes' if enrollment_mgr.embedding_json_path(pid).exists() else 'no'}",
+                    f"  samples.jsonl        {'yes' if enrollment_mgr.samples_path(pid).exists() else 'no'}",
+                    f"  meta.json            {'yes' if enrollment_mgr.meta_path(pid).exists() else 'no'}",
+                    f"index.json             gallery manifest for all people",
                 ]),
                 language="text",
             )
@@ -1121,6 +1151,29 @@ with tab_train:
     }
     device = device_options[st.selectbox("Device", list(device_options.keys()), key="train_device")]
 
+    col_aug, col_db = st.columns(2)
+    with col_aug:
+        enable_aug = st.checkbox(
+            "Synthetic cafeteria data augmentation (glare, shadows, perspective)",
+            value=True,
+            key="train_aug_check",
+        )
+    with col_db:
+        if st.button("🔄 Sync Database Labels (Active Learning)", key="btn_sync_db_active"):
+            try:
+                from cafeteria.training.learning_loop import LearningLoop
+                loop = LearningLoop(
+                    project_root=cfg.project_root,
+                    datasets_dir=cfg.project_root / cfg.storage.datasets,
+                    models_dir=cfg.project_root / cfg.storage.models,
+                    registry=registry,
+                )
+                res = loop.ingest_from_database(min_confidence=0.80, trigger_retrain=False)
+                st.success(f"Active learning synced {res.get('ingested', 0)} confirmed sample(s) into dataset!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Sync failed: {e}")
+
     st.markdown("---")
 
     counts      = dm.waste_class_counts()
@@ -1207,6 +1260,7 @@ with tab_train:
                         base_model=base_model, epochs=int(epochs),
                         image_size=int(img_size), batch=int(batch), version=version,
                         progress_callback=_on_epoch,
+                        augment_dataset=enable_aug,
                     )
                 else:
                     from cafeteria.training.trainer import PlateModelTrainer

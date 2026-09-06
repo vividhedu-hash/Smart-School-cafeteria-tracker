@@ -46,6 +46,8 @@ class LoopConfig:
     retrain_epochs: int = 15
     retrain_image_size: int = 224
     retrain_batch: int = 8
+    augment_training: bool = True
+    target_count_per_class: int = 20
 
 
 def loop_config_from_settings(training_cfg: Any) -> LoopConfig:
@@ -338,6 +340,99 @@ class LearningLoop:
         retrain = self.maybe_retrain() if trigger_retrain else {"started": False}
         return {"added": added, "skipped": skipped, "retrain": retrain}
 
+    def ingest_from_database(
+        self,
+        session: Any = None,
+        min_confidence: float = 0.80,
+        max_items: int = 50,
+        trigger_retrain: bool = True,
+    ) -> dict:
+        """
+        Active learning ingestion: Ingest high-confidence auto-confirmed transactions
+        or operator-resolved review entries directly into training candidates or dataset.
+        """
+        from cafeteria.storage.models import Transaction
+        from sqlalchemy import or_
+
+        ingested = 0
+        skipped = 0
+        should_close = False
+
+        if session is None:
+            try:
+                from cafeteria.storage.database import get_session
+                session = get_session()
+                should_close = True
+            except Exception as exc:
+                logger.debug("Database not initialized for active learning ingestion: %s", exc)
+                return {"ingested": 0, "skipped": 0, "notice": "db_not_initialized"}
+        try:
+            txs = (
+                session.query(Transaction)
+                .filter(
+                    Transaction.waste_status.isnot(None),
+                    Transaction.status.in_(["AUTO_CONFIRMED", "CONFIRMED"]),
+                    or_(
+                        Transaction.plate_image_path.isnot(None),
+                        Transaction.event_image_path.isnot(None),
+                    ),
+                )
+                .order_by(Transaction.timestamp.desc())
+                .limit(max_items)
+                .all()
+            )
+
+            for tx in txs:
+                label = (tx.waste_status or "").upper()
+                if label not in WASTE_CLASSES:
+                    skipped += 1
+                    continue
+
+                img_path = None
+                for cand in [tx.plate_image_path, tx.event_image_path]:
+                    if not cand:
+                        continue
+                    p = Path(cand)
+                    if p.is_file():
+                        img_path = p
+                        break
+                    p_rel = self._root / cand
+                    if p_rel.is_file():
+                        img_path = p_rel
+                        break
+
+                if not img_path:
+                    skipped += 1
+                    continue
+
+                conf = float(tx.waste_confidence or 0.85)
+                if conf < min_confidence and tx.status != "CONFIRMED":
+                    skipped += 1
+                    continue
+
+                res = self.promote_from_paths(
+                    [img_path],
+                    confirmed_label=label,
+                    trigger_retrain=False,
+                )
+                if res.get("added", 0) > 0:
+                    ingested += res["added"]
+                else:
+                    skipped += 1
+
+            retrain = self.maybe_retrain() if trigger_retrain else {"started": False}
+            return {
+                "ingested": ingested,
+                "skipped": skipped,
+                "retrain": retrain,
+            }
+        except Exception as exc:
+            logger.warning("Active learning DB ingestion failed: %s", exc)
+            return {"ingested": 0, "skipped": 0, "error": str(exc)}
+        finally:
+            if should_close and session is not None:
+                session.close()
+
     # ── Retrain + activate ─────────────────────────────────────────────────
 
     def can_retrain(self) -> bool:
@@ -434,6 +529,8 @@ class LearningLoop:
                     batch=self._cfg.retrain_batch,
                     version=version,
                     progress_callback=_on_epoch,
+                    augment_dataset=self._cfg.augment_training,
+                    target_count_per_class=self._cfg.target_count_per_class,
                 )
                 self._registry.register_version(
                     task=result.task,

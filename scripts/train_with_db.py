@@ -35,7 +35,7 @@ from cafeteria.storage.repositories import DatasetImageRepository, ModelVersionR
 from cafeteria.training.registry import ModelRegistry
 
 
-def export_db_dataset_for_yolo(cfg, task: str) -> Path:
+def export_db_dataset_for_yolo(cfg, task: str, augment: bool = True, target_per_class: int = 20) -> Path:
     """
     Export dataset images from the database into YOLO directory structure.
     """
@@ -73,6 +73,17 @@ def export_db_dataset_for_yolo(cfg, task: str) -> Path:
                         vcat.mkdir(parents=True, exist_ok=True)
                         for f in list(cat_dir.iterdir())[:max(1, len(list(cat_dir.iterdir())) // 4)]:
                             shutil.copy2(f, vcat / f.name)
+
+            if augment:
+                try:
+                    from cafeteria.training.augmentation import CafeteriaAugmentor
+                    train_dir = export_dir / "train"
+                    class_dirs = {d.name: d for d in train_dir.iterdir() if d.is_dir()}
+                    augmentor = CafeteriaAugmentor()
+                    aug_count = augmentor.augment_dataset(class_dirs, target_count_per_class=target_per_class)
+                    print(f"🎨 Augmented database waste dataset with {aug_count} synthetic cafeteria variations")
+                except Exception as e:
+                    print(f"⚠️ Augmentation notice: {e}")
 
         else:
             # Detection structure: export_dir / images / {train,val} and labels / {train,val}
@@ -116,12 +127,12 @@ def export_db_dataset_for_yolo(cfg, task: str) -> Path:
         session.close()
 
 
-def train_task(cfg, task: str, epochs: int, batch: int = 8) -> str:
+def train_task(cfg, task: str, epochs: int, batch: int = 8, augment: bool = True, target_per_class: int = 20) -> str:
     print(f"\n=======================================================")
     print(f"🚀 Starting Database-Driven Training: {task.upper()}")
     print(f"=======================================================")
 
-    export_dir = export_db_dataset_for_yolo(cfg, task)
+    export_dir = export_db_dataset_for_yolo(cfg, task, augment=augment, target_per_class=target_per_class)
     from ultralytics import YOLO
 
     models_dir = Path(cfg.project_root) / "models" / task
@@ -212,6 +223,8 @@ def main():
     parser.add_argument("--task", choices=["plate", "waste", "both"], default="both", help="Task to train")
     parser.add_argument("--epochs", type=int, default=5, help="Number of epochs to train")
     parser.add_argument("--batch", type=int, default=8, help="Training batch size")
+    parser.add_argument("--no-augment", action="store_true", help="Disable synthetic cafeteria data augmentation")
+    parser.add_argument("--target-per-class", type=int, default=20, help="Target count per class after augmentation")
     args = parser.parse_args()
 
     cfg = load_settings()
@@ -219,7 +232,14 @@ def main():
 
     tasks = ["plate", "waste"] if args.task == "both" else [args.task]
     for t in tasks:
-        train_task(cfg, t, epochs=args.epochs, batch=args.batch)
+        train_task(
+            cfg,
+            t,
+            epochs=args.epochs,
+            batch=args.batch,
+            augment=not args.no_augment,
+            target_per_class=args.target_per_class,
+        )
 
     print("\n🎉 All requested models successfully trained and activated from the database!")
 

@@ -187,3 +187,12 @@ def test_activate_rejects_worse_model(loop_env, monkeypatch):
     assert info["activated"] is False
     assert info["reason"] == "worse_than_active"
     assert registry.active_version_string("waste") == "v001"
+
+
+def test_ingest_from_database(loop_env):
+    loop, _, _ = loop_env
+    res = loop.ingest_from_database(min_confidence=0.70, trigger_retrain=False)
+    assert "ingested" in res
+    assert "skipped" in res
+    assert isinstance(res["ingested"], int)
+

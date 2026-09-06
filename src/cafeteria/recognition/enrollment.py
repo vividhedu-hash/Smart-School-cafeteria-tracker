@@ -27,6 +27,7 @@ from typing import Optional
 import cv2
 import numpy as np
 
+from cafeteria.recognition.quality import BiometricQualityAssessor, FaceQualityReport, PoseCategory
 from cafeteria.utils.logging import get_logger
 
 logger = get_logger("recognition.enrollment")
@@ -78,6 +79,7 @@ class EnrollmentManager:
         self._face_engine = face_engine
         self._min_face_size = min_face_size
         self._audit_path = Path(audit_path) if audit_path else None
+        self._quality_assessor = BiometricQualityAssessor()
         # [AI-CoLab: Cursor] audit_path is optional so older callers (and tests) keep working.
 
     # ──────────────────────────────────────────────────────────────────────
@@ -95,6 +97,12 @@ class EnrollmentManager:
 
     def embedding_path(self, person_id: str) -> Path:
         return self.person_dir(person_id) / "embedding.npy"
+
+    def multi_embedding_path(self, person_id: str) -> Path:
+        return self.person_dir(person_id) / "embeddings_multi.npy"
+
+    def poses_json_path(self, person_id: str) -> Path:
+        return self.person_dir(person_id) / "poses.json"
 
     def embedding_json_path(self, person_id: str) -> Path:
         return self.person_dir(person_id) / "embedding.json"
@@ -240,16 +248,25 @@ class EnrollmentManager:
 
         self.per_image_emb_dir(pid).mkdir(parents=True, exist_ok=True)
         embeddings = []
+        weights = []
         sample_rows = []
         failed = []
+        pose_dict: dict[str, list[dict]] = {}
+        quality_scores: list[float] = []
+
         for img_path in images:
             img = cv2.imread(str(img_path))
-            pose = img_path.stem.split("_")[0] if "_" in img_path.stem else None
+            pose_tag = img_path.stem.split("_")[0] if "_" in img_path.stem else None
             row = {
                 "file": f"images/{img_path.name}",
-                "pose": pose if pose and not pose.isdigit() else None,
+                "pose": pose_tag if pose_tag and not pose_tag.isdigit() else None,
                 "used_in_mean": False,
                 "det_score": None,
+                "quality_score": None,
+                "iso_compliant": False,
+                "pose_category": None,
+                "ipd_pixels": None,
+                "sharpness": None,
             }
             if img is None:
                 failed.append(img_path.name)
@@ -261,11 +278,47 @@ class EnrollmentManager:
                 failed.append(img_path.name)
                 sample_rows.append(row)
                 continue
+
+            # Biometric quality assessment (ISO/IEC 19794-5 & Big Tech standards)
+            bbox = face["bbox"]
+            kps = face.get("kps")
+            quality = self._quality_assessor.evaluate(img, bbox, kps)
+
             emb = np.asarray(face["embedding"], dtype=np.float32)
+            norm_e = np.linalg.norm(emb)
+            if norm_e > 0:
+                emb = emb / norm_e
+
             np.save(str(self.per_image_emb_dir(pid) / f"{img_path.stem}.npy"), emb)
             embeddings.append(emb)
+
+            # Adaptive quality weighting (higher-quality, centered & sharp frames have higher influence)
+            q_score = float(quality.overall_score)
+            weight = max(0.20, q_score / 100.0)
+            weights.append(weight)
+            quality_scores.append(q_score)
+
+            pose_cat = quality.pose_category.value
+            if pose_cat not in pose_dict:
+                pose_dict[pose_cat] = []
+            pose_dict[pose_cat].append({
+                "file": img_path.name,
+                "quality_score": q_score,
+                "yaw": quality.pose.yaw,
+                "pitch": quality.pose.pitch,
+                "roll": quality.pose.roll,
+            })
+
             row["used_in_mean"] = True
             row["det_score"] = round(float(face.get("det_score") or 0.0), 4)
+            row["quality_score"] = round(q_score, 1)
+            row["iso_compliant"] = quality.passed
+            row["pose_category"] = pose_cat
+            row["ipd_pixels"] = quality.ipd_pixels
+            row["sharpness"] = quality.sharpness_score
+            row["yaw"] = quality.pose.yaw
+            row["pitch"] = quality.pose.pitch
+            row["roll"] = quality.pose.roll
             sample_rows.append(row)
 
         if not embeddings:
@@ -276,11 +329,24 @@ class EnrollmentManager:
             )
             return None
 
-        mean_emb = np.mean(np.stack(embeddings, axis=0), axis=0)
-        norm = np.linalg.norm(mean_emb)
+        # Quality-weighted composite master embedding
+        weights_arr = np.array(weights, dtype=np.float32)[:, np.newaxis]
+        weighted_sum = np.sum(np.stack(embeddings, axis=0) * weights_arr, axis=0)
+        norm = np.linalg.norm(weighted_sum)
         if norm > 0:
-            mean_emb = mean_emb / norm
-        mean_emb = mean_emb.astype(np.float32)
+            mean_emb = (weighted_sum / norm).astype(np.float32)
+        else:
+            mean_emb = np.mean(np.stack(embeddings, axis=0), axis=0).astype(np.float32)
+
+        # Save multi-pose template gallery for pose-adaptive nearest-neighbor matching
+        multi_embs = np.stack(embeddings, axis=0)
+        np.save(str(self.multi_embedding_path(pid)), multi_embs)
+        self._write_json(self.poses_json_path(pid), {
+            "schema": "cafeteria.poses.v1",
+            "person_id": pid,
+            "poses": pose_dict,
+            "exemplar_count": len(embeddings),
+        })
 
         from cafeteria.recognition.crypto import lock_tree, save_embedding
         save_embedding(self.embedding_path(pid), mean_emb)
@@ -292,11 +358,13 @@ class EnrollmentManager:
             "dtype": "float32",
             "encrypted": True,
             "storage": "embedding.npy",
+            "multi_template_storage": "embeddings_multi.npy",
         })
         with open(self.samples_path(pid), "w", encoding="utf-8") as f:
             for row in sample_rows:
                 f.write(json.dumps(row) + "\n")
 
+        avg_q = float(np.mean(quality_scores)) if quality_scores else 0.0
         meta = {
             "schema": SCHEMA_VERSION,
             "person_id": pid,
@@ -307,6 +375,9 @@ class EnrollmentManager:
             "embedding_dim": int(mean_emb.shape[0]),
             "embedding_stale": False,
             "model": "insightface",
+            "average_quality_score": round(avg_q, 1),
+            "iso_compliant": avg_q >= 68.0,
+            "pose_coverage": list(pose_dict.keys()),
             "enrolled_at": (self.load_meta(pid) or {}).get("enrolled_at") or time.time(),
             "updated_at": time.time(),
         }
@@ -319,13 +390,37 @@ class EnrollmentManager:
             pid,
             valid_faces=len(embeddings),
             image_count=len(images),
+            avg_quality=round(avg_q, 1),
         )
 
         logger.info(
-            "Embedding generated for %s (%s) — %d/%d images succeeded",
-            pid, name, len(embeddings), len(images),
+            "Embedding generated for %s (%s) — %d/%d images succeeded (Avg Quality: %.1f)",
+            pid, name, len(embeddings), len(images), avg_q,
         )
         return mean_emb
+
+    def evaluate_face_quality(
+        self,
+        image: np.ndarray,
+        target_pose: Optional[str] = None,
+    ) -> Optional[FaceQualityReport]:
+        """
+        Evaluate ISO biometric quality of a live frame or image for real-time UI feedback.
+        """
+        if self._face_engine is None or not self._face_engine.is_loaded:
+            return None
+        face = self._face_engine.get_largest_face(image, min_size=self._min_face_size)
+        if face is None:
+            return None
+        t_pose = None
+        if target_pose:
+            try:
+                t_pose = PoseCategory(target_pose.lower())
+            except ValueError:
+                pass
+        return self._quality_assessor.evaluate(
+            image, face["bbox"], face.get("kps"), target_pose=t_pose
+        )
 
     def write_gallery_index(self) -> Path:
         """Write data/enrollment/index.json — the ML-readable gallery manifest."""
