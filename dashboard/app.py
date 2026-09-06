@@ -52,7 +52,14 @@ def _init():
     # Do NOT auto-start engine; user explicitly controls lifecycle from website UI
     return load_app()
 
-cfg = _init()
+try:
+    cfg = _init()
+except Exception as _boot_err:
+    st.error(
+        f"⚠️ Startup issue (running in read-only mode): `{_boot_err}`\n\n"
+        "The dashboard is still accessible. Live camera features require local deployment."
+    )
+    cfg = None
 
 # ── Shared visual language ───────────────────────────────────────────────────
 from theme import inject_css, status_strip
