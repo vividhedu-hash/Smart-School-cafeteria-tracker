@@ -32,28 +32,34 @@ database/*.db-shm
 database/*.db-wal
 !database/.gitkeep
 
-# Models — keep directory structure, not large weights
+# Models — keep directory structure, not large weights or training plots
 models/face/**/*.onnx
 models/face/**/*.bin
 models/face/**/*.zip
 models/plate/**/*.pt
 models/waste/**/*.pt
+models/**/*.png
+models/**/*.jpg
+models/**/*.csv
+models/**/args.yaml
 
-# Data — keep directory structure, not images/captures
+# Data — keep directory structure, not images/captures/exports
 data/captures/**/*.jpg
 data/captures/**/*.png
 data/review_queue/**/*.jpg
 data/review_queue/**/*.png
 data/frames/
+data/db_exports/
+data/audit/
 
-# Keep enrollment structure but not actual images
-data/enrollment/**/*.jpg
-data/enrollment/**/*.png
-data/enrollment/**/*.npy
+# Keep enrollment structure but not actual user biometrics/samples
+data/enrollment/**
+!data/enrollment/.gitkeep
 
 # Keep dataset structure but not images
 data/datasets/**/*.jpg
 data/datasets/**/*.png
+data/datasets/plate/labels/*.txt
 data/exports/**
 
 # Runtime state

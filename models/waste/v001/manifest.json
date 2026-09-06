@@ -1,0 +1,47 @@
+{
+  "task": "waste",
+  "version": "v001",
+  "weights_path": "/Users/indian/Downloads/Adaptive signal project/India Lens /school project/smart-cafeteria-waste/models/waste/v001/weights/best.pt",
+  "metrics": {
+    "top1_accuracy": 1.0,
+    "top5_accuracy": 1.0,
+    "dataset": {
+      "EMPTY": 15,
+      "LOW_WASTE": 0,
+      "MEDIUM_WASTE": 0,
+      "HIGH_WASTE": 0
+    },
+    "dataset_stats": {
+      "train": {
+        "EMPTY": 10
+      },
+      "val": {
+        "EMPTY": 3
+      },
+      "test": {
+        "EMPTY": 2
+      },
+      "total": 15
+    }
+  },
+  "config": {
+    "base_model": "yolov8n-cls.pt",
+    "epochs": 3,
+    "image_size": 224,
+    "batch": 8,
+    "device": "cpu"
+  },
+  "dataset_stats": {
+    "train": {
+      "EMPTY": 10
+    },
+    "val": {
+      "EMPTY": 3
+    },
+    "test": {
+      "EMPTY": 2
+    },
+    "total": 15
+  },
+  "trained_at": 1788286240.4176168
+}

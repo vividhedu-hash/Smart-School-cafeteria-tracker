@@ -188,4 +188,5 @@ def face_match_as_dict(face_match: Any) -> Optional[dict]:
         "det_score": face_match_field(face_match, "det_score"),
         "approaching": bool(face_match_field(face_match, "approaching", False)),
         "infer_id": face_match_field(face_match, "infer_id"),
+        "moving": bool(face_match_field(face_match, "moving", False)),
     }

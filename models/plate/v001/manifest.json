@@ -1,0 +1,17 @@
+{
+  "task": "plate",
+  "version": "v001",
+  "weights_path": "/Users/indian/Downloads/Adaptive signal project/India Lens /school project/smart-cafeteria-waste/models/plate/v001/weights/best.pt",
+  "metrics": {
+    "map50": 0.1421,
+    "map50_95": 0.1015
+  },
+  "config": {
+    "base_model": "yolov8n.pt",
+    "epochs": 3,
+    "image_size": 640,
+    "batch": 8
+  },
+  "dataset_stats": {},
+  "trained_at": 1788286186.280101
+}
