@@ -358,6 +358,12 @@ def load_settings(config_path: Optional[Path] = None) -> Settings:
         "project_root": project_root,
         "config_source": Path(config_path).resolve() if config_found else None,
     })
+    # Apply environment DATABASE_URL override if present (never under pytest)
+    if "PYTEST_CURRENT_TEST" not in os.environ:
+        env_db = os.environ.get("DATABASE_URL")
+        if env_db and not settings.storage.database_url:
+            settings.storage.database_url = env_db
+
     _settings_cache = settings
     return settings
 

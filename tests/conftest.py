@@ -27,6 +27,7 @@ sys.path.insert(0, str(_project_root / "dashboard"))
 
 # Override project root for tests
 os.environ["CAFETERIA_CONFIG"] = str(_project_root / "configs" / "config.yaml")
+os.environ.pop("DATABASE_URL", None)
 
 
 def pytest_ignore_collect(collection_path, config):

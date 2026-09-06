@@ -51,7 +51,9 @@ def init_db(
     """
     global _engine, _SessionLocal
 
-    url = database_url or os.environ.get("DATABASE_URL")
+    url = database_url
+    if not url and db_path is None:
+        url = os.environ.get("DATABASE_URL")
 
     if url and (url.startswith("postgresql://") or url.startswith("postgres://")):
         # Fix legacy postgres:// schema if returned by some providers like Heroku/Supabase

@@ -30,6 +30,7 @@ dependencies = [
     "scipy>=1.13.0",
     "watchdog>=4.0.0",
     "cryptography>=42.0.0",
+    "psycopg2-binary>=2.9.9",
     # Live camera in browser (enrollment wizard)
     "streamlit-webrtc>=0.47.0",
     "aiortc>=1.6.0",
