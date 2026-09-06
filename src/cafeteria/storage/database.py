@@ -60,22 +60,54 @@ def init_db(
         if url.startswith("postgres://"):
             url = "postgresql://" + url[len("postgres://"):]
 
-        _engine = create_engine(
-            url,
-            pool_size=10,
-            max_overflow=20,
-            pool_pre_ping=True,
-            echo=False,
-        )
-        logger.info("Database initialized with PostgreSQL connection pool")
+        # If direct db.<ref>.supabase.co is used, translate to IPv4 Supavisor pooler
+        # because cloud runtimes (Streamlit Cloud, AWS, GitHub) lack IPv6 egress.
+        import re
+        m = re.search(r"@db\.([a-z0-9]+)\.supabase\.co:(\d+)", url)
+        if m:
+            ref = m.group(1)
+            port = m.group(2)
+            prefix, rest = url.split("://", 1)
+            if "@" in rest:
+                userpass, hostdb = rest.split("@", 1)
+                if ":" in userpass:
+                    user, pwd = userpass.split(":", 1)
+                    if not user.endswith("." + ref):
+                        user = f"{user}.{ref}"
+                    userpass = f"{user}:{pwd}"
+                hostdb = hostdb.replace(
+                    f"db.{ref}.supabase.co:{port}",
+                    "aws-0-ap-south-1.pooler.supabase.com:5432",
+                )
+                url = f"{prefix}://{userpass}@{hostdb}"
+                logger.info("Auto-adapted direct Supabase IPv6 URL to IPv4 Supavisor pooler")
 
+        try:
+            engine = create_engine(
+                url,
+                pool_size=10,
+                max_overflow=20,
+                pool_pre_ping=True,
+                connect_args={"connect_timeout": 10},
+                echo=False,
+            )
+            with engine.connect() as conn:
+                pass
+            Base.metadata.create_all(bind=engine)
+            logger.info("Database initialized with PostgreSQL connection pool")
+        except Exception as exc:
+            logger.error("PostgreSQL connection failed (%s); falling back to SQLite", exc)
+            engine = None
     else:
-        # SQLite fallback
+        engine = None
+
+    if engine is None:
+        # SQLite fallback or explicit SQLite path
         target_path = Path(db_path) if db_path else Path("database/cafeteria.db")
         target_path.parent.mkdir(parents=True, exist_ok=True)
         connection_str = f"sqlite:///{target_path.as_posix()}"
 
-        _engine = create_engine(
+        engine = create_engine(
             connection_str,
             connect_args={
                 "check_same_thread": False,
@@ -84,12 +116,11 @@ def init_db(
             echo=False,
             pool_pre_ping=True,
         )
-        event.listen(_engine, "connect", _apply_pragmas)
+        event.listen(engine, "connect", _apply_pragmas)
+        Base.metadata.create_all(bind=engine)
         logger.info("Database initialized at %s", target_path)
 
-    # Create all tables
-    Base.metadata.create_all(bind=_engine)
-
+    _engine = engine
     _SessionLocal = sessionmaker(
         bind=_engine,
         autocommit=False,

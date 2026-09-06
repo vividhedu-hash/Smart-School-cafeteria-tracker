@@ -16,6 +16,16 @@ def load_app():
     Streamlit multipage scripts do not share ``app.py``'s ``@st.cache_resource``
     init, so every page must call this (or ``init_db``) before ``get_session``.
     """
+    import os
+    try:
+        import streamlit as st
+        if hasattr(st, "secrets"):
+            for key in ["DATABASE_URL", "CAFETERIA_OPERATOR_PIN", "STREAMLIT_SERVER_PORT"]:
+                if key in st.secrets and not os.environ.get(key):
+                    os.environ[key] = str(st.secrets[key])
+    except Exception:
+        pass
+
     cfg = load_settings(config_path=PROJECT_ROOT / "configs" / "config.yaml")
     ensure_runtime_storage(cfg)
     return cfg
