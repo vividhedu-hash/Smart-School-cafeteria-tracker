@@ -95,7 +95,7 @@ with st.sidebar:
 
     st.markdown("---")
 
-    if engine_alive:
+    if engine_alive and cfg is not None:
         # [AI-CoLab: Cursor] AppSettings already defines api_host/api_port. getattr
         # is only a belt-and-suspenders guard if an older config object is loaded.
         _api_h = getattr(cfg.application, "api_host", None)
@@ -159,6 +159,8 @@ st.markdown(
 
 def _enrolled_count() -> int:
     # [AI-CoLab: Verified by Antigravity] Robust count of enrolled face profiles for top status strip
+    if cfg is None:
+        return 0
     try:
         from cafeteria.recognition.enrollment import EnrollmentManager
         mgr = EnrollmentManager(
@@ -195,6 +197,8 @@ st.markdown("### 🩺 System Readiness")
 
 def _readiness() -> list[tuple[str, str, str]]:
     """Return [(component, status, detail)] from real files/state, not hopes."""
+    if cfg is None:
+        return [("Engine", "UNAVAILABLE", "cloud preview mode — local deployment required")]
     rows: list[tuple[str, str, str]] = []
 
     from cafeteria.training.registry import ModelRegistry
@@ -269,11 +273,14 @@ _status_style = {
 }
 
 try:
-    state_data = fetch_state(
-        cfg.project_root / cfg.application.runtime_state_path,
-        host=getattr(cfg.application, "api_host", None),
-        port=getattr(cfg.application, "api_port", None),
-    ) if engine_alive else {}
+    if cfg is not None:
+        state_data = fetch_state(
+            cfg.project_root / cfg.application.runtime_state_path,
+            host=getattr(cfg.application, "api_host", None),
+            port=getattr(cfg.application, "api_port", None),
+        ) if engine_alive else {}
+    else:
+        state_data = {}
 
     _rows = _readiness()
     _cols = st.columns(len(_rows))

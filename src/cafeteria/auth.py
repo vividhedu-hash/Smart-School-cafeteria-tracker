@@ -60,13 +60,16 @@ def _read_stored_pin(path: Path) -> Optional[str]:
 
 
 def _write_pin_file(path: Path, pin: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(pin + "\n", encoding="utf-8")
     try:
-        os.chmod(path, 0o600)
-        os.chmod(path.parent, 0o700)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(pin + "\n", encoding="utf-8")
+        try:
+            os.chmod(path, 0o600)
+            os.chmod(path.parent, 0o700)
+        except OSError:
+            pass
     except OSError:
-        pass
+        pass  # read-only filesystem (e.g. Streamlit Cloud) — PIN displayed on screen instead
 
 
 def resolve_operator_pin(project_root: Optional[Path] = None) -> OperatorPinStatus:
@@ -111,13 +114,20 @@ def ensure_operator_pin(project_root: Optional[Path] = None) -> OperatorPinStatu
         return existing
     path = existing.path or operator_pin_path(project_root)
     pin = f"{secrets.randbelow(1_000_000):06d}"
-    _write_pin_file(path, pin)
+    write_ok = True
+    try:
+        _write_pin_file(path, pin)
+    except OSError:
+        # On read-only filesystems (e.g. Streamlit Cloud /mount/src) we cannot
+        # persist the PIN file.  Still return the generated pin so the UI can
+        # display it to the operator — source is "generated" not "file".
+        write_ok = False
     return OperatorPinStatus(
         configured=True,
         generated=True,
         pin=pin,
-        source="file",
-        path=path,
+        source="file" if write_ok else "generated",
+        path=path if write_ok else None,
     )
 
 

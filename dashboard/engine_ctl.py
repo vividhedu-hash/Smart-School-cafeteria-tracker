@@ -1,8 +1,9 @@
 """
 Dashboard ↔ engine process control.
 
-Kept out of ``app.py`` so other Streamlit pages can start/stop the engine and
-write heartbeats without importing the home page (which would re-run it).
+On Streamlit Cloud (read-only FS, no camera, sandboxed) all engine
+start/stop operations silently no-op.  The rest of the dashboard still
+works as a data-viewer connected to Supabase.
 """
 from __future__ import annotations
 
@@ -21,8 +22,19 @@ HEARTBEAT_FILE = PROJECT_ROOT / "data" / "heartbeat"
 _PYTHON = PROJECT_ROOT / ".venv" / "bin" / "python"
 
 
+def _is_cloud() -> bool:
+    """Detect Streamlit Community Cloud runtime (read-only FS, no webcam)."""
+    return (
+        os.environ.get("HOME", "") == "/home/adminuser"
+        or Path("/mount/src").exists()
+        or os.environ.get("STREAMLIT_SHARING_MODE") == "true"
+    )
+
+
 def write_heartbeat() -> None:
     """Touch the heartbeat file and ping the engine API if it is up."""
+    if _is_cloud():
+        return
     try:
         HEARTBEAT_FILE.parent.mkdir(parents=True, exist_ok=True)
         HEARTBEAT_FILE.write_text(str(time.time()))
@@ -37,6 +49,8 @@ def write_heartbeat() -> None:
 
 def engine_is_alive() -> bool:
     """Return True if the engine subprocess is running."""
+    if _is_cloud():
+        return False
     if not PID_FILE.exists():
         return False
     try:
@@ -59,17 +73,22 @@ def engine_pid() -> int | None:
 
 def start_engine() -> int | None:
     """Launch ``cafeteria.main`` as a detached background process."""
+    if _is_cloud():
+        return None
     if engine_is_alive():
         return engine_pid()
 
-    write_heartbeat()  # survive InsightFace load until Live Monitor polls
+    write_heartbeat()
 
     python = str(_PYTHON if _PYTHON.exists() else Path(sys.executable))
     env = {**os.environ, "PYTHONPATH": str(SRC_DIR), "PYTHONUNBUFFERED": "1"}
     log_dir = PROJECT_ROOT / "logs"
-    log_dir.mkdir(parents=True, exist_ok=True)
-    stdio_path = log_dir / "engine_stdio.log"
-    stdio = open(stdio_path, "ab", buffering=0)
+    try:
+        log_dir.mkdir(parents=True, exist_ok=True)
+        stdio_path = log_dir / "engine_stdio.log"
+        stdio = open(stdio_path, "ab", buffering=0)
+    except OSError:
+        stdio = subprocess.DEVNULL  # type: ignore[assignment]
 
     proc = subprocess.Popen(
         [python, "-m", "cafeteria.main"],
@@ -79,8 +98,11 @@ def start_engine() -> int | None:
         stderr=stdio,
         start_new_session=True,
     )
-    PID_FILE.parent.mkdir(parents=True, exist_ok=True)
-    PID_FILE.write_text(str(proc.pid))
+    try:
+        PID_FILE.parent.mkdir(parents=True, exist_ok=True)
+        PID_FILE.write_text(str(proc.pid))
+    except OSError:
+        pass
 
     try:
         from engine_client import wait_for_api
@@ -98,6 +120,8 @@ def start_engine() -> int | None:
 
 def stop_engine() -> None:
     """Terminate the engine subprocess and release the camera."""
+    if _is_cloud():
+        return
     pid = None
     if PID_FILE.exists():
         try:
@@ -122,7 +146,10 @@ def stop_engine() -> None:
             except (ProcessLookupError, PermissionError, OSError):
                 pass
 
-    PID_FILE.unlink(missing_ok=True)
+    try:
+        PID_FILE.unlink(missing_ok=True)
+    except OSError:
+        pass
 
     try:
         subprocess.run(
@@ -133,4 +160,7 @@ def stop_engine() -> None:
     except Exception:
         pass
 
-    (PROJECT_ROOT / "data" / "runtime_state.json").unlink(missing_ok=True)
+    try:
+        (PROJECT_ROOT / "data" / "runtime_state.json").unlink(missing_ok=True)
+    except OSError:
+        pass

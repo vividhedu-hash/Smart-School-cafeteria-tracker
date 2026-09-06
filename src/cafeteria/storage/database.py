@@ -83,17 +83,32 @@ def _make_sqlite_engine(db_path: Optional[Path] = None):
     """Build and return a WAL-mode SQLite engine."""
     target = db_path if db_path else Path("database/cafeteria.db")
     target = Path(target)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    eng = create_engine(
-        f"sqlite:///{target.as_posix()}",
-        connect_args={"check_same_thread": False, "timeout": 30},
-        echo=False,
-        pool_pre_ping=True,
-    )
-    event.listen(eng, "connect", _apply_pragmas)
-    Base.metadata.create_all(bind=eng)
-    logger.info("SQLite engine ready at %s", target)
-    return eng
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        eng = create_engine(
+            f"sqlite:///{target.as_posix()}",
+            connect_args={"check_same_thread": False, "timeout": 30},
+            echo=False,
+            pool_pre_ping=True,
+        )
+        event.listen(eng, "connect", _apply_pragmas)
+        Base.metadata.create_all(bind=eng)
+        logger.info("SQLite engine ready at %s", target)
+        return eng
+    except OSError:
+        # Read-only filesystem fallback (e.g. Streamlit Cloud /mount/src)
+        tmp_target = Path("/tmp") / target.name
+        tmp_target.parent.mkdir(parents=True, exist_ok=True)
+        eng = create_engine(
+            f"sqlite:///{tmp_target.as_posix()}",
+            connect_args={"check_same_thread": False, "timeout": 30},
+            echo=False,
+            pool_pre_ping=True,
+        )
+        event.listen(eng, "connect", _apply_pragmas)
+        Base.metadata.create_all(bind=eng)
+        logger.info("SQLite engine ready at %s (fallback from read-only fs)", tmp_target)
+        return eng
 
 
 def _try_postgres_background(url: str) -> None:
@@ -154,17 +169,20 @@ def init_db(
         _pg_url = url
 
     # 2. Spin up SQLite immediately so the app is never blocked by network
-    sqlite_path = Path(db_path) if db_path else None
-    sqlite_eng = _make_sqlite_engine(sqlite_path)
+    # If PG is already connected, preserve it.
+    if not _pg_connected:
+        sqlite_path = Path(db_path) if db_path else None
+        sqlite_eng = _make_sqlite_engine(sqlite_path)
 
-    with _pg_lock:
-        _engine = sqlite_eng
-        _SessionLocal = sessionmaker(
-            bind=sqlite_eng, autocommit=False, autoflush=False, expire_on_commit=False
-        )
+        with _pg_lock:
+            if not _pg_connected:
+                _engine = sqlite_eng
+                _SessionLocal = sessionmaker(
+                    bind=sqlite_eng, autocommit=False, autoflush=False, expire_on_commit=False
+                )
 
-    # 3. Fire PG attempt in background (non-blocking)
-    if _pg_url and not _pg_connected:
+    # 3. Fire PG attempt in background (non-blocking, skipped in tests)
+    if _pg_url and not _pg_connected and "PYTEST_CURRENT_TEST" not in os.environ:
         t = threading.Thread(
             target=_try_postgres_background, args=(_pg_url,), daemon=True
         )

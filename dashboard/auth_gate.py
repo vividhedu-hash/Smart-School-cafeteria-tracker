@@ -1,6 +1,7 @@
 """Streamlit session gate — required on every dashboard page."""
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import streamlit as st
@@ -9,8 +10,20 @@ _DASHBOARD_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = _DASHBOARD_DIR.parent
 
 
+def _sync_secrets() -> None:
+    """Push st.secrets into os.environ before any auth logic runs."""
+    try:
+        for key in ("CAFETERIA_OPERATOR_PIN", "DATABASE_URL", "CAFETERIA_ENGINE_TOKEN"):
+            if key in st.secrets and not os.environ.get(key):
+                os.environ[key] = str(st.secrets[key])
+    except Exception:
+        pass
+
+
 def require_login() -> None:
     """Block the page until the operator PIN is verified in this browser session."""
+    _sync_secrets()  # must run before ensure_operator_pin reads os.environ
+
     from cafeteria.auth import ensure_operator_pin, verify_operator_pin
 
     if st.session_state.get("operator_ok"):
@@ -27,15 +40,15 @@ def require_login() -> None:
 
     if status.generated and status.pin:
         st.session_state["generated_pin"] = status.pin
-        st.session_state["generated_pin_path"] = str(status.path)
+        st.session_state["generated_pin_path"] = str(status.path or "cloud-memory")
 
     shown = st.session_state.get("generated_pin")
     if shown:
         path = st.session_state.get("generated_pin_path", "data/.operator_pin")
         st.warning(
-            f"No `CAFETERIA_OPERATOR_PIN` was set, so a PIN was generated and "
-            f"saved to `{path}` (not in git). **PIN: `{shown}`** — store it, "
-            "then log in. Override later with the env var."
+            f"No `CAFETERIA_OPERATOR_PIN` was set, so a PIN was generated. "
+            f"**PIN: `{shown}`** — enter it below. "
+            "Set `CAFETERIA_OPERATOR_PIN` in Streamlit secrets to make it permanent."
         )
     elif status.source == "env":
         st.info("PIN is set via `CAFETERIA_OPERATOR_PIN`.")

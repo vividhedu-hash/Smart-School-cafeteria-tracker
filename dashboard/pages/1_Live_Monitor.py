@@ -39,7 +39,10 @@ from engine_ctl import write_heartbeat, engine_is_alive, start_engine, stop_engi
 from engine_client import fetch_state, fetch_frame_bytes
 from theme import inject_css, status_strip
 
-cfg = load_app()
+try:
+    cfg = load_app()
+except Exception as _boot_err:
+    cfg = None
 
 # Heartbeat immediately: the engine only keeps the camera while a page asks.
 write_heartbeat()
@@ -102,6 +105,8 @@ STATE_COLOURS = {
 
 
 def _api_kwargs() -> dict:
+    if cfg is None:
+        return {"host": None, "port": None}
     return {
         "host": getattr(cfg.application, "api_host", None),
         "port": getattr(cfg.application, "api_port", None),
@@ -110,6 +115,12 @@ def _api_kwargs() -> dict:
 
 def _enrollment_thumb(person_id: str) -> str:
     """Circular avatar for a matched person, or a neutral placeholder."""
+    if cfg is None:
+        return (
+            '<div style="width:96px;height:96px;border-radius:50%;background:#1e293b;'
+            'border:3px solid #22c55e;margin:0 auto 10px;display:flex;align-items:center;'
+            'justify-content:center;font-size:2.5rem;">👤</div>'
+        )
     enrollment_dir = cfg.project_root / cfg.recognition.embedding_dir / person_id
     photos: list[Path] = []
     for root in (enrollment_dir / "images", enrollment_dir):
@@ -202,12 +213,13 @@ def _render_identity(state_data: dict) -> None:
         return
 
     sim_pct = int(float(live.get("similarity") or 0.0) * 100)
+    thresh = cfg.recognition.similarity_threshold if cfg else 0.52
     st.markdown(f"""
     <div class="id-card unknown">
         <div style="font-size:3rem">❓</div>
         <div class="id-name" style="color:#fb923c;">Unknown</div>
         <div style="color:#94a3b8;font-size:0.9rem;margin:6px 0 10px;">
-            Best match: {sim_pct}% — below the {cfg.recognition.similarity_threshold:.2f} threshold
+            Best match: {sim_pct}% — below the {thresh:.2f} threshold
         </div>
         <span class="id-badge badge-unknown">NOT ENROLLED</span>
     </div>

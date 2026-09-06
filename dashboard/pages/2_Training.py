@@ -27,7 +27,10 @@ for p in [str(_project_root / "src"), str(_project_root), str(_dashboard_dir)]:
     if p not in sys.path:
         sys.path.insert(0, p)
 
-import cv2
+try:
+    import cv2
+except ImportError:
+    cv2 = None
 import numpy as np
 import streamlit as st
 from PIL import Image
