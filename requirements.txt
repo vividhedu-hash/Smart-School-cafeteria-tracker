@@ -1,0 +1,33 @@
+# Core CV and Deep Learning
+opencv-python-headless>=4.9.0.80
+ultralytics>=8.2.0
+onnxruntime>=1.18.0
+insightface>=0.7.3
+numpy>=1.26.0,<2.0.0
+
+# Data and Modeling
+pydantic>=2.7.0
+pydantic-settings>=2.2.0
+sqlalchemy>=2.0.30
+psycopg2-binary>=2.9.9
+pandas>=2.2.0
+scikit-learn>=1.5.0
+scipy>=1.13.0
+pillow>=10.3.0
+
+# Visualization and Dashboard
+streamlit>=1.35.0
+plotly>=5.22.0
+matplotlib>=3.9.0
+seaborn>=0.13.2
+pyyaml>=6.0.1
+psutil>=5.9.8
+tqdm>=4.66.0
+python-dotenv>=1.0.1
+watchdog>=4.0.0
+cryptography>=42.0.0
+
+# WebRTC and Live Camera in Browser
+streamlit-webrtc>=0.47.0
+aiortc>=1.6.0
+av>=10.0.0
