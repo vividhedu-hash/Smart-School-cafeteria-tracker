@@ -96,7 +96,7 @@ from cafeteria.monitoring.metrics import write_command
 from cafeteria.recognition.enrollment import EnrollmentManager
 from cafeteria.storage.database import get_session
 from cafeteria.storage.repositories import PersonRepository
-from engine_ctl import engine_is_alive, start_engine, stop_engine, write_heartbeat
+from engine_ctl import engine_is_alive, start_engine, stop_engine, write_heartbeat, is_cloud
 from engine_client import fetch_raw_frame_bytes, fetch_state
 from empty_states import empty_state_html
 from enroll_cam import (
@@ -428,171 +428,238 @@ with tab_enroll:
         session_key = f"enroll_{pid}"
         cam_src = cfg.camera.source if isinstance(cfg.camera.source, int) else 0
         borrowing = st.session_state.enroll_source == "engine" and _ENGINE_ALIVE
+        on_cloud = is_cloud()
 
         st.subheader(f"Step 2 — scan **{pname}**")
         st.markdown(_wizard_html("capture"), unsafe_allow_html=True)
 
-        if borrowing:
+        tab_browser, tab_live, tab_upload = st.tabs([
+            "📸 Browser Camera (Instant)",
+            "🔄 Live Stream / Auto Scan",
+            "📁 Upload Photos",
+        ])
+
+        with tab_browser:
             st.caption(
-                "Borrowing frames from the running engine, so the Live Monitor keeps working. "
-                f"Look towards the camera — we take {TARGET_FRAMES} shots on our own."
+                "Snaps photos directly from your browser webcam. Works on any device with zero setup."
             )
-        else:
-            st.caption(
-                "Using the webcam directly from Python. "
-                f"Look towards the camera — we take {TARGET_FRAMES} shots on our own."
-            )
+            bcam_shot = st.camera_input(f"Take photo for {pname}", key=f"bcam_input_{pid}")
+            if bcam_shot is not None:
+                b_bytes = bcam_shot.getvalue()
+                b_img = _decode_upload(b_bytes)
+                if b_img is not None:
+                    h_b, w_b = b_img.shape[:2]
+                    from cafeteria.recognition.quality import BiometricQualityAssessor
+                    qa = BiometricQualityAssessor()
+                    rep = qa.evaluate(b_img, [int(w_b * 0.25), int(h_b * 0.15), int(w_b * 0.75), int(h_b * 0.85)])
+                    bq1, bq2, bq3 = st.columns(3)
+                    with bq1:
+                        st.metric("Biometric Quality", f"{rep.overall_score:.0f}/100", delta="ISO Compliant" if rep.passed else "Adapting", delta_color="normal" if rep.passed else "off")
+                    with bq2:
+                        st.metric("Head Pose", rep.pose_category.value.replace("_", " ").title())
+                    with bq3:
+                        st.metric("Resolution (IPD)", f"{rep.ipd_pixels:.0f}px", delta=">=60px ISO Standard" if rep.ipd_pixels >= 60 else "<60px Step Closer", delta_color="normal" if rep.ipd_pixels >= 60 else "inverse")
+                    if rep.coaching_hint:
+                        st.info(f"💡 {rep.coaching_hint}")
 
-        def _provider():
-            return _engine_frame() if borrowing else None
+                    b_shots = st.session_state.setdefault(f"bcam_shots_{pid}", [])
+                    col_b_add, col_b_done = st.columns(2)
+                    with col_b_add:
+                        if st.button(f"➕ Save Shot #{len(b_shots) + 1}", type="primary", key=f"btn_add_bshot_{len(b_shots)}"):
+                            b_shots.append(b_img)
+                            st.success(f"Shot saved! ({len(b_shots)}/{TARGET_FRAMES})")
+                            st.rerun()
+                    with col_b_done:
+                        if st.button("✓ Finish Enrollment Now", key="btn_bcam_done_now"):
+                            if len(b_shots) == 0:
+                                b_shots.append(b_img)
+                            for s_img in b_shots:
+                                enrollment_mgr.save_image(pid, s_img, pose="front")
+                            st.session_state[f"bcam_shots_{pid}"] = []
+                            st.session_state.enroll_saved = True
+                            st.session_state.enroll_embed_status = "pending"
+                            st.session_state.enroll_step = "embed"
+                            st.rerun()
 
-        cam = start_enroll_camera(
-            session_key,
-            source=int(cam_src),
-            frame_provider=_provider if borrowing else None,
-        )
-
-        ctrl_snap, ctrl_use, ctrl_restart, ctrl_source = st.columns([1, 1, 1, 1.4])
-        with ctrl_snap:
-            if st.button("📸 Snap now", key="btn_snap_now", width="stretch"):
-                cam.request_snap()
-        with ctrl_use:
-            if st.button("✓ Use these shots", key="btn_use_shots", width="stretch"):
-                if not cam.finish_now():
-                    st.info("No frames captured yet — press **Snap now** at least once.")
-        with ctrl_restart:
-            if st.button("↻ Restart scan", key="btn_restart_scan", width="stretch"):
-                st.session_state.enroll_saved = False
-                restart_enroll_camera(
-                    session_key,
-                    source=int(cam_src),
-                    frame_provider=_provider if borrowing else None,
-                )
-                st.rerun()
-        with ctrl_source:
-            if borrowing:
-                if st.button("Use webcam directly (stops engine)", key="btn_src_direct",
-                             width="stretch"):
-                    stop_enroll_camera(session_key)
-                    stop_engine()
-                    st.session_state.enroll_source = "direct"
-                    st.rerun()
-            elif _ENGINE_ALIVE:
-                if st.button("Borrow the engine camera", key="btn_src_engine", width="stretch"):
-                    stop_enroll_camera(session_key)
-                    st.session_state.enroll_source = "engine"
-                    st.rerun()
-            else:
-                if st.button("Start engine and borrow it", key="btn_src_start_engine",
-                             width="stretch"):
-                    stop_enroll_camera(session_key)
-                    start_engine()
-                    st.session_state.enroll_source = "engine"
-                    st.rerun()
-
-        @st.fragment(run_every=0.25)
-        def _enroll_preview() -> None:
-            if borrowing:
-                write_heartbeat()  # keep the engine (and its camera) alive while scanning
-            live = start_enroll_camera(
-                session_key,
-                source=int(cam_src),
-                frame_provider=_provider if borrowing else None,
-            )
-            s = live.status()
-
-            if s.error:
-                st.warning(s.error, icon="📷")
-                st.caption(
-                    "Switch the capture source above, or upload photos further down — "
-                    "either path finishes the enrollment."
-                )
-                return
-
-            tone = "#34d399" if s.face_visible else "#7dd3fc"
-            sub = {
-                "relaxed": "Close enough — capturing now",
-                "manual": "Captured from the manual shutter",
-            }.get(s.mode, "Automatic capture, no need to hold perfectly still")
-            st.markdown(
-                f'<div class="coach-panel">'
-                f'<div class="coach-headline" style="color:{tone}">{s.hint}</div>'
-                f'<div class="coach-sub">{sub}</div></div>',
-                unsafe_allow_html=True,
-            )
-
-            # Live ISO/IEC 19794-5 Biometric Telemetry
-            if s.face_visible:
-                q_cols = st.columns(3)
-                q_val = getattr(s, "quality_score", 0.0) or 0.0
-                is_iso = getattr(s, "iso_compliant", False)
-                p_label = getattr(s, "pose_label", "FRONT") or "FRONT"
-                ipd = getattr(s, "ipd_pixels", 0.0) or 0.0
-                with q_cols[0]:
-                    st.metric("Biometric Quality", f"{q_val:.0f}/100", delta="ISO Compliant" if is_iso else "Adapting", delta_color="normal" if is_iso else "off")
-                with q_cols[1]:
-                    st.metric("Head Pose", p_label)
-                with q_cols[2]:
-                    st.metric("Resolution (IPD)", f"{ipd:.0f}px", delta=">=60px ISO Standard" if ipd >= 60 else "<60px Step Closer", delta_color="normal" if ipd >= 60 else "inverse")
-
-            if s.jpeg:
-                st.image(s.jpeg, width=420)
-            else:
-                st.info("Opening the camera…")
-
-            st.progress(min(s.count / max(s.target, 1), 1.0), text=f"{s.count} / {s.target} shots")
-
-            if s.needs_help:
-                st.info(
-                    "No face detected yet. More light on your face usually fixes it — "
-                    "otherwise press **Snap now** a few times, or upload photos below. "
-                    "InsightFace makes the final call on which shots are usable.",
-                    icon="💡",
-                )
-
-            if s.done and not st.session_state.enroll_saved:
-                saved = 0
-                for img in live.take_captures():
-                    enrollment_mgr.save_image(pid, img, pose="front")
-                    saved += 1
-                stop_enroll_camera(session_key)
-                st.session_state.enroll_saved = True
-                if saved:
-                    st.session_state.enroll_embed_status = "pending"
-                    st.session_state.enroll_step = "embed"
-                    st.rerun(scope="app")
-
-        _enroll_preview()
-
-        st.markdown("---")
-        st.markdown("### Prefer to upload photos?")
-        st.caption("Three or more front-facing photos in decent light are plenty.")
-        uploads = st.file_uploader(
-            "Face photos",
-            type=["jpg", "jpeg", "png", "webp"],
-            accept_multiple_files=True,
-            key=f"enroll_upload_{pid}",
-        )
-        if st.button("Save photos and finish enrollment", type="primary", key="btn_upload_enroll"):
-            if not uploads:
-                st.info("Add at least one photo first.")
-            else:
-                stop_enroll_camera(session_key)
-                poses = ["front", "left", "right", "up", "down"]
-                saved = 0
-                for i, uf in enumerate(uploads):
-                    img = _decode_upload(uf.getvalue())
-                    if img is None:
-                        continue
-                    enrollment_mgr.save_image(pid, img, pose=poses[i % len(poses)])
-                    saved += 1
-                if saved < 1:
-                    st.error("Those files could not be read as images.")
-                else:
+            b_shots = st.session_state.get(f"bcam_shots_{pid}", [])
+            if b_shots:
+                st.markdown(f"**Saved Shots ({len(b_shots)}/{TARGET_FRAMES})**")
+                tcols = st.columns(min(len(b_shots), 5))
+                for idx, simg in enumerate(b_shots):
+                    with tcols[idx % 5]:
+                        st.image(simg[:, :, ::-1], width=90, caption=f"Shot #{idx+1}")
+                if st.button("✓ Finalize Profile With These Shots →", type="primary", key="btn_finalize_bshots"):
+                    for s_img in b_shots:
+                        enrollment_mgr.save_image(pid, s_img, pose="front")
+                    st.session_state[f"bcam_shots_{pid}"] = []
                     st.session_state.enroll_saved = True
                     st.session_state.enroll_embed_status = "pending"
                     st.session_state.enroll_step = "embed"
                     st.rerun()
+
+        with tab_live:
+            if borrowing:
+                st.caption(
+                    "Borrowing frames from the running engine, so the Live Monitor keeps working. "
+                    f"Look towards the camera — we take {TARGET_FRAMES} shots on our own."
+                )
+            elif on_cloud:
+                st.caption(
+                    "Cloud environment: Start the engine to stream frames from the virtual feed, "
+                    "or use the **Browser Camera** tab to capture from your webcam."
+                )
+            else:
+                st.caption(
+                    "Using the webcam directly from Python. "
+                    f"Look towards the camera — we take {TARGET_FRAMES} shots on our own."
+                )
+
+            def _provider():
+                return _engine_frame() if borrowing else None
+
+            cam = start_enroll_camera(
+                session_key,
+                source=int(cam_src),
+                frame_provider=_provider if borrowing else None,
+            )
+
+            ctrl_snap, ctrl_use, ctrl_restart, ctrl_source = st.columns([1, 1, 1, 1.4])
+            with ctrl_snap:
+                if st.button("📸 Snap now", key="btn_snap_now", width="stretch"):
+                    cam.request_snap()
+            with ctrl_use:
+                if st.button("✓ Use these shots", key="btn_use_shots", width="stretch"):
+                    if not cam.finish_now():
+                        st.info("No frames captured yet — press **Snap now** at least once.")
+            with ctrl_restart:
+                if st.button("↻ Restart scan", key="btn_restart_scan", width="stretch"):
+                    st.session_state.enroll_saved = False
+                    restart_enroll_camera(
+                        session_key,
+                        source=int(cam_src),
+                        frame_provider=_provider if borrowing else None,
+                    )
+                    st.rerun()
+            with ctrl_source:
+                if borrowing:
+                    if st.button("Use webcam directly (stops engine)", key="btn_src_direct",
+                                 width="stretch"):
+                        stop_enroll_camera(session_key)
+                        stop_engine()
+                        st.session_state.enroll_source = "direct"
+                        st.rerun()
+                elif _ENGINE_ALIVE:
+                    if st.button("Borrow the engine camera", key="btn_src_engine", width="stretch"):
+                        stop_enroll_camera(session_key)
+                        st.session_state.enroll_source = "engine"
+                        st.rerun()
+                else:
+                    if st.button("Start engine and borrow it", key="btn_src_start_engine",
+                                 width="stretch"):
+                        stop_enroll_camera(session_key)
+                        start_engine()
+                        st.session_state.enroll_source = "engine"
+                        st.rerun()
+
+            @st.fragment(run_every=0.35)
+            def _enroll_preview() -> None:
+                if borrowing:
+                    write_heartbeat()
+                live = start_enroll_camera(
+                    session_key,
+                    source=int(cam_src),
+                    frame_provider=_provider if borrowing else None,
+                )
+                s = live.status()
+
+                if s.error:
+                    st.warning(s.error, icon="📷")
+                    st.info("💡 Switch to the **Browser Camera** tab above to use your device webcam directly!")
+                    return
+
+                tone = "#34d399" if s.face_visible else "#7dd3fc"
+                sub = {
+                    "relaxed": "Close enough — capturing now",
+                    "manual": "Captured from the manual shutter",
+                }.get(s.mode, "Automatic capture, no need to hold perfectly still")
+                st.markdown(
+                    f'<div class="coach-panel">'
+                    f'<div class="coach-headline" style="color:{tone}">{s.hint}</div>'
+                    f'<div class="coach-sub">{sub}</div></div>',
+                    unsafe_allow_html=True,
+                )
+
+                if s.face_visible:
+                    q_cols = st.columns(3)
+                    q_val = getattr(s, "quality_score", 0.0) or 0.0
+                    is_iso = getattr(s, "iso_compliant", False)
+                    p_label = getattr(s, "pose_label", "FRONT") or "FRONT"
+                    ipd = getattr(s, "ipd_pixels", 0.0) or 0.0
+                    with q_cols[0]:
+                        st.metric("Biometric Quality", f"{q_val:.0f}/100", delta="ISO Compliant" if is_iso else "Adapting", delta_color="normal" if is_iso else "off")
+                    with q_cols[1]:
+                        st.metric("Head Pose", p_label)
+                    with q_cols[2]:
+                        st.metric("Resolution (IPD)", f"{ipd:.0f}px", delta=">=60px ISO Standard" if ipd >= 60 else "<60px Step Closer", delta_color="normal" if ipd >= 60 else "inverse")
+
+                if s.jpeg:
+                    st.image(s.jpeg, width=420)
+                else:
+                    st.info("Opening the camera…")
+
+                st.progress(min(s.count / max(s.target, 1), 1.0), text=f"{s.count} / {s.target} shots")
+
+                if s.needs_help:
+                    st.info(
+                        "No face detected yet. More light on your face usually fixes it — "
+                        "otherwise press **Snap now** a few times, or upload photos below. "
+                        "InsightFace makes the final call on which shots are usable.",
+                        icon="💡",
+                    )
+
+                if s.done and not st.session_state.enroll_saved:
+                    saved = 0
+                    for img in live.take_captures():
+                        enrollment_mgr.save_image(pid, img, pose="front")
+                        saved += 1
+                    stop_enroll_camera(session_key)
+                    st.session_state.enroll_saved = True
+                    if saved:
+                        st.session_state.enroll_embed_status = "pending"
+                        st.session_state.enroll_step = "embed"
+                        st.rerun(scope="app")
+
+            _enroll_preview()
+
+        with tab_upload:
+            st.markdown("### Upload photos from disk")
+            st.caption("Three or more front-facing photos in decent light are plenty.")
+            uploads = st.file_uploader(
+                "Face photos",
+                type=["jpg", "jpeg", "png", "webp"],
+                accept_multiple_files=True,
+                key=f"enroll_upload_{pid}",
+            )
+            if st.button("Save photos and finish enrollment", type="primary", key="btn_upload_enroll"):
+                if not uploads:
+                    st.info("Add at least one photo first.")
+                else:
+                    stop_enroll_camera(session_key)
+                    poses = ["front", "left", "right", "up", "down"]
+                    saved = 0
+                    for i, uf in enumerate(uploads):
+                        img = _decode_upload(uf.getvalue())
+                        if img is None:
+                            continue
+                        enrollment_mgr.save_image(pid, img, pose=poses[i % len(poses)])
+                        saved += 1
+                    if saved < 1:
+                        st.error("Those files could not be read as images.")
+                    else:
+                        st.session_state.enroll_saved = True
+                        st.session_state.enroll_embed_status = "pending"
+                        st.session_state.enroll_step = "embed"
+                        st.rerun()
 
         if st.button("← Back to people", key="back_to_select"):
             stop_enroll_camera(session_key)

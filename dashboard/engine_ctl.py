@@ -36,8 +36,6 @@ _is_cloud = is_cloud
 
 def write_heartbeat() -> None:
     """Touch the heartbeat file and ping the engine API if it is up."""
-    if _is_cloud():
-        return
     try:
         HEARTBEAT_FILE.parent.mkdir(parents=True, exist_ok=True)
         HEARTBEAT_FILE.write_text(str(time.time()))
@@ -52,8 +50,6 @@ def write_heartbeat() -> None:
 
 def engine_is_alive() -> bool:
     """Return True if the engine subprocess is running."""
-    if _is_cloud():
-        return False
     if not PID_FILE.exists():
         return False
     try:
@@ -76,8 +72,6 @@ def engine_pid() -> int | None:
 
 def start_engine() -> int | None:
     """Launch ``cafeteria.main`` as a detached background process."""
-    if _is_cloud():
-        return None
     if engine_is_alive():
         return engine_pid()
 
@@ -85,6 +79,9 @@ def start_engine() -> int | None:
 
     python = str(_PYTHON if _PYTHON.exists() else Path(sys.executable))
     env = {**os.environ, "PYTHONPATH": str(SRC_DIR), "PYTHONUNBUFFERED": "1"}
+    if is_cloud():
+        env["CAFETERIA_VIRTUAL_CAM"] = "1"
+
     log_dir = PROJECT_ROOT / "logs"
     try:
         log_dir.mkdir(parents=True, exist_ok=True)
@@ -113,7 +110,7 @@ def start_engine() -> int | None:
     except Exception:
         pass
 
-    deadline = time.time() + 2.0
+    deadline = time.time() + 2.5
     while time.time() < deadline:
         if engine_is_alive():
             return proc.pid
@@ -123,8 +120,6 @@ def start_engine() -> int | None:
 
 def stop_engine() -> None:
     """Terminate the engine subprocess and release the camera."""
-    if _is_cloud():
-        return
     pid = None
     if PID_FILE.exists():
         try:

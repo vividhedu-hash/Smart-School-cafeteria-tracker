@@ -255,33 +255,7 @@ def live_view() -> None:
     # [AI-CoLab: Verified by Antigravity] Fragment-based self-refreshing live view preventing full page rerenders
     write_heartbeat()
 
-    if is_cloud():
-        st.session_state.pop("engine_started_at", None)
-        status_strip({}, engine_alive=False)
-        st.info(
-            "☁️ **Live Camera requires local hardware**\n\n"
-            "This Streamlit dashboard is running on a cloud server without an attached webcam. "
-            "To stream real-time video and run face recognition live on camera:\n\n"
-            "1. Run the local launcher on your workstation: `bash run.sh`\n"
-            "2. Or double-click `Start_Cafeteria_Tracker.command`.\n"
-            "3. Events, transactions, and detections will sync in real time with this dashboard.",
-            icon="📹",
-        )
-        return
-
     if not engine_is_alive():
-        st.session_state.pop("engine_started_at", None)
-        status_strip({}, engine_alive=False)
-        st.info(
-            "**The engine is stopped, so the camera is off.**\n\n"
-            "Start it to get a live feed and face matching. It releases the camera "
-            "on its own about a minute after you leave this page.",
-            icon="⏸️",
-        )
-        if st.button("▶ Start engine", type="primary", key="live_start"):
-            start_engine()
-            st.session_state["engine_started_at"] = time.time()
-            st.rerun()
         return
 
     st.session_state.setdefault("engine_started_at", time.time())
@@ -344,13 +318,7 @@ def live_view() -> None:
 
 with st.sidebar:
     st.markdown("### Camera")
-    if is_cloud():
-        st.markdown(
-            '<span class="state-badge status-warn">☁️ CLOUD PREVIEW</span>',
-            unsafe_allow_html=True,
-        )
-        st.caption("Live video stream runs on your local workstation where physical cameras are connected.")
-    elif engine_is_alive():
+    if engine_is_alive():
         st.markdown(
             '<span class="state-badge status-ok">● ENGINE RUNNING</span>',
             unsafe_allow_html=True,
@@ -372,4 +340,26 @@ with st.sidebar:
         "and switches off about a minute after you leave."
     )
 
-live_view()
+# ── Main view: Live Stream or Stopped Prompt ─────────────────────────────────
+if engine_is_alive():
+    live_view()
+else:
+    st.session_state.pop("engine_started_at", None)
+    status_strip({}, engine_alive=False)
+    st.info(
+        "**The inference engine is currently STOPPED.**\n\n"
+        "Click **▶ Start Engine** below to start real-time cafeteria detection, "
+        "live camera video streaming, and face matching in 1 click.",
+        icon="⏸️",
+    )
+    col_start, col_help = st.columns([1, 2])
+    with col_start:
+        if st.button("▶ Start Engine Now", type="primary", key="live_start_btn", use_container_width=True):
+            start_engine()
+            st.session_state["engine_started_at"] = time.time()
+            st.rerun()
+    with col_help:
+        st.caption(
+            "Launches the CV pipeline. Supports physical USB/built-in webcams on workstation, "
+            "and automatically provisions the Virtual Cafeteria Stream on cloud containers."
+        )

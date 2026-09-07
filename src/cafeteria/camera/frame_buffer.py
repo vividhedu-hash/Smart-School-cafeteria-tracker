@@ -154,8 +154,16 @@ def build_camera(config) -> CameraBase:
     """
     from cafeteria.camera.webcam import WebcamCamera
     from cafeteria.camera.rtsp import RTSPCamera
+    from cafeteria.camera.virtual import VirtualCafeteriaCamera
 
-    if config.mode == "rtsp":
+    if getattr(config, "mode", "webcam") in ("virtual", "demo", "synthetic"):
+        return VirtualCafeteriaCamera(
+            width=int(getattr(config, "width", 0) or 1280),
+            height=int(getattr(config, "height", 0) or 720),
+            fps=config.fps,
+            camera_id="cam0",
+        )
+    elif config.mode == "rtsp":
         return RTSPCamera(
             url=str(config.source),
             fps=config.fps,

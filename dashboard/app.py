@@ -77,22 +77,12 @@ with st.sidebar:
     st.markdown("## 🍽️ Cafeteria Tracker")
     st.markdown("---")
 
-    cloud_mode = _is_cloud()
     engine_alive = _engine_is_alive()
     st.markdown("**Engine Controls**")
 
-    if cloud_mode:
-        st.markdown('<span class="state-badge status-warn">☁️ CLOUD PREVIEW</span>', unsafe_allow_html=True)
-        st.caption(
-            "Dashboard is hosted in cloud mode. Real-time video detection and camera AI run on "
-            "your local machine."
-        )
-        with st.expander("💻 Local Camera Setup", expanded=False):
-            st.code("bash run.sh", language="bash")
-            st.caption("Runs the local real-time inference engine and syncs with this Supabase database.")
-    elif engine_alive:
+    if engine_alive:
         st.markdown('<span class="state-badge status-ok">● ENGINE RUNNING</span>', unsafe_allow_html=True)
-        st.caption("Camera LED is on. Stop the engine to release it immediately.")
+        st.caption("Real-time inference and camera pipeline are active.")
         if st.button("⏹ Stop Engine", type="primary", width="stretch"):
             _stop_engine()
             st.success("Engine terminated.")
@@ -100,11 +90,8 @@ with st.sidebar:
             st.rerun()
     else:
         st.markdown('<span class="state-badge status-error">● ENGINE STOPPED</span>', unsafe_allow_html=True)
-        st.caption(
-            "Starts the camera. It releases itself about a minute after you leave "
-            "Live Monitor and the enrollment scanner."
-        )
-        if st.button("▶ Start Engine", width="stretch"):
+        st.caption("Click below to launch the inference engine in 1 click.")
+        if st.button("▶ Start Engine", type="primary", width="stretch"):
             _start_engine()
             st.success("Engine starting…")
             time.sleep(1)
@@ -191,31 +178,29 @@ def _enrolled_count() -> int:
 status_strip(state_data, engine_alive=engine_alive, enrolled=_enrolled_count())
 
 # Engine status banner
-if cloud_mode:
-    st.info(
-        "☁️ **Cloud Management Dashboard Active**\n\n"
-        "Your database, analytics, review queue, and model roster are fully operational. "
-        "Real-time video inference and webcam tracking run on your physical machine.\n\n"
-        "To start the live camera engine locally: run `bash run.sh` or double-click `Start_Cafeteria_Tracker.command`.",
-        icon="☁️",
-    )
-elif not engine_alive:
-    st.info(
-        "**The inference engine is currently STOPPED.**\n\n"
-        "Click **▶ Start Engine**, then open **Live Monitor** for the live feed. "
-        "Enrollment and dataset capture borrow the same camera, so you can leave "
-        "the engine running while you work.",
-        icon="ℹ️",
-    )
-    if st.button("▶ Start Engine Now"):
-        _start_engine()
-        st.rerun()
+if not engine_alive:
+    c_banner_text, c_banner_btn = st.columns([3, 1])
+    with c_banner_text:
+        st.info(
+            "**The inference engine is currently STOPPED.**\n\n"
+            "Click **▶ Start Engine Now** to launch real-time video detection and AI inference "
+            "in 1 click. Then open **Live Monitor** for the live feed.",
+            icon="ℹ️",
+        )
+    with c_banner_btn:
+        if st.button("▶ Start Engine Now", type="primary", use_container_width=True):
+            _start_engine()
+            st.rerun()
 else:
-    st.success(
-        "✅ Engine online — camera is on. Live Monitor, face enrollment, and dataset "
-        "capture all share this feed.",
-        icon="✅",
-    )
+    c_banner_text, c_banner_link = st.columns([3, 1])
+    with c_banner_text:
+        st.success(
+            "✅ **Inference Engine Online** — Real-time plate tracking, face recognition, and "
+            "waste analysis are active. Live Monitor, face enrollment, and database sync are live.",
+            icon="✅",
+        )
+    with c_banner_link:
+        st.page_link("pages/1_Live_Monitor.py", label="Open Live Monitor 📹", icon="📹")
 
 # ── System Readiness (honest status — no fake AI) ─────────────────────────────
 st.markdown("### 🩺 System Readiness")

@@ -25,6 +25,8 @@ from typing import Callable, Optional
 import cv2
 import numpy as np
 
+from engine_ctl import is_cloud
+
 
 TARGET_FRAMES = 5
 
@@ -204,6 +206,15 @@ class EnrollCamera:
     def _run(self) -> None:
         if self._frame_provider is not None:
             self._loop(read=self._read_from_provider)
+            return
+
+        if is_cloud():
+            with self._lock:
+                self.error = (
+                    "Direct server-side webcam capture is not available on cloud hosting. "
+                    "Use the Browser Camera option below or upload photos to complete enrollment."
+                )
+                self.hint = "Cloud environment (use Browser Camera)"
             return
 
         cap = self._open_capture()
@@ -452,9 +463,7 @@ def start_enroll_camera(
 ) -> EnrollCamera:
     with _SESS_LOCK:
         cam = _SESSIONS.get(session_key)
-        if cam is None or cam.error:
-            if cam is not None:
-                cam.stop()
+        if cam is None:
             cam = EnrollCamera(source=source, frame_provider=frame_provider)
             _SESSIONS[session_key] = cam
         return cam

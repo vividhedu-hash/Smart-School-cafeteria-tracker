@@ -12,6 +12,7 @@ Automatic reconnect on disconnect.
 """
 from __future__ import annotations
 
+import os
 import platform
 import time
 from typing import Any, Optional
@@ -106,6 +107,7 @@ class WebcamCamera(CameraBase):
         self._actual_fps: float = 0.0
         self._dropped_frames: int = 0
         self._opened_index: Any = source
+        self._virtual_cam: Optional[CameraBase] = None
 
     # ──────────────────────────────────────────────────────────────────────
     # CameraBase interface
@@ -116,6 +118,9 @@ class WebcamCamera(CameraBase):
         return self._open_with_fallback()
 
     def read(self) -> Optional[TimestampedFrame]:
+        if self._virtual_cam is not None:
+            return self._virtual_cam.read()
+
         if self._cap is None or not self._cap.isOpened():
             self._dropped_frames += 1
             return None
@@ -142,6 +147,13 @@ class WebcamCamera(CameraBase):
         )
 
     def close(self) -> None:
+        if self._virtual_cam is not None:
+            try:
+                self._virtual_cam.close()
+            except Exception:
+                pass
+            self._virtual_cam = None
+
         if self._cap is not None:
             try:
                 self._cap.release()
@@ -155,9 +167,13 @@ class WebcamCamera(CameraBase):
         logger.info("Camera closed (source=%s)", self._opened_index)
 
     def is_open(self) -> bool:
+        if self._virtual_cam is not None:
+            return self._virtual_cam.is_open()
         return self._cap is not None and self._cap.isOpened()
 
     def info(self) -> CameraInfo:
+        if self._virtual_cam is not None:
+            return self._virtual_cam.info()
         return CameraInfo(
             camera_id=self.camera_id,
             mode="webcam",
@@ -173,6 +189,8 @@ class WebcamCamera(CameraBase):
 
     def reconnect(self) -> bool:
         """Attempt to reconnect after a disconnect."""
+        if self._virtual_cam is not None:
+            return self._virtual_cam.reconnect()
         logger.warning("Attempting camera reconnect (source=%s)", self.source)
         self.close()
         for attempt in range(1, self.reconnect_max_attempts + 1):
@@ -190,17 +208,41 @@ class WebcamCamera(CameraBase):
 
     def _open_with_fallback(self) -> bool:
         """Try indices × backends, then negotiate a capture size that actually sticks."""
+        if os.environ.get("CAFETERIA_VIRTUAL_CAM") == "1" or str(self.source).lower() in ("virtual", "demo", "synthetic"):
+            logger.info("Direct virtual cafeteria stream requested via environment/source")
+            from cafeteria.camera.virtual import VirtualCafeteriaCamera
+            self._virtual_cam = VirtualCafeteriaCamera(
+                width=self.width or 1280,
+                height=self.height or 720,
+                fps=self.fps or 20,
+                camera_id=self.camera_id,
+            )
+            return self._virtual_cam.open()
+
         if isinstance(self.source, str) and not is_auto_source(self.source) and not str(self.source).isdigit():
             # Video file / device path
-            return self._open_one(self.source, [self._backend, cv2.CAP_ANY])
+            if self._open_one(self.source, [self._backend, cv2.CAP_ANY]):
+                return True
 
         indices = candidate_indices(self.source)
         backends = [self._backend, cv2.CAP_ANY]
         for idx in indices:
             if self._open_one(idx, backends):
                 return True
-        logger.error("Could not open any camera (tried indices %s)", indices)
-        return False
+
+        logger.warning(
+            "Could not open physical webcam (tried indices %s). "
+            "Activating Virtual Cafeteria Camera (Demo Stream) fallback.",
+            indices,
+        )
+        from cafeteria.camera.virtual import VirtualCafeteriaCamera
+        self._virtual_cam = VirtualCafeteriaCamera(
+            width=self.width or 1280,
+            height=self.height or 720,
+            fps=self.fps or 20,
+            camera_id=self.camera_id,
+        )
+        return self._virtual_cam.open()
 
     def _open_one(self, source: Any, backends: list[int]) -> bool:
         for backend in backends:
