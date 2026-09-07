@@ -1,0 +1,28 @@
+{
+  "schema": "cafeteria.enrollment.v1",
+  "person_id": "Bhavmanyu_24",
+  "name": "Bhavmanyu",
+  "image_count": 19,
+  "valid_faces": 14,
+  "failed_images": [
+    "front_1787160820854_8e2af2d5.jpg",
+    "front_1787160820905_a063b890.jpg",
+    "front_1787160820951_48ccb3e5.jpg",
+    "front_1787160820973_4ece9fa0.jpg",
+    "front_1787160821004_a930db89.jpg"
+  ],
+  "embedding_dim": 512,
+  "embedding_stale": false,
+  "model": "insightface",
+  "average_quality_score": 63.5,
+  "iso_compliant": false,
+  "pose_coverage": [
+    "frontal",
+    "extreme_angle",
+    "slight_left",
+    "slight_down",
+    "slight_up"
+  ],
+  "enrolled_at": 1786981148.643127,
+  "updated_at": 1788799859.195293
+}

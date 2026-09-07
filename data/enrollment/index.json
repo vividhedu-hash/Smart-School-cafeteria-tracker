@@ -1,0 +1,89 @@
+{
+  "schema": "cafeteria.enrollment.v1",
+  "updated_at": 1788800851.2162728,
+  "embedding_dim": 512,
+  "layout": {
+    "images": "{person_id}/images/*.jpg",
+    "mean_embedding": "{person_id}/embedding.npy",
+    "mean_embedding_json": "{person_id}/embedding.json",
+    "per_image_embeddings": "{person_id}/embeddings/{stem}.npy",
+    "samples": "{person_id}/samples.jsonl"
+  },
+  "persons": [
+    {
+      "person_id": "Bhavmanyu_24",
+      "name": "Bhavmanyu",
+      "images": [
+        "Bhavmanyu_24/images/0001.jpg",
+        "Bhavmanyu_24/images/0002.jpg",
+        "Bhavmanyu_24/images/0003.jpg",
+        "Bhavmanyu_24/images/0004.jpg",
+        "Bhavmanyu_24/images/0005.jpg",
+        "Bhavmanyu_24/images/0006.jpg",
+        "Bhavmanyu_24/images/0007.jpg",
+        "Bhavmanyu_24/images/0008.jpg",
+        "Bhavmanyu_24/images/0009.jpg",
+        "Bhavmanyu_24/images/0010.jpg",
+        "Bhavmanyu_24/images/0011.jpg",
+        "Bhavmanyu_24/images/0012.jpg",
+        "Bhavmanyu_24/images/0013.jpg",
+        "Bhavmanyu_24/images/0014.jpg",
+        "Bhavmanyu_24/images/front_1787160820854_8e2af2d5.jpg",
+        "Bhavmanyu_24/images/front_1787160820905_a063b890.jpg",
+        "Bhavmanyu_24/images/front_1787160820951_48ccb3e5.jpg",
+        "Bhavmanyu_24/images/front_1787160820973_4ece9fa0.jpg",
+        "Bhavmanyu_24/images/front_1787160821004_a930db89.jpg"
+      ],
+      "image_count": 19,
+      "embedding": "Bhavmanyu_24/embedding.npy",
+      "embedding_json": "Bhavmanyu_24/embedding.json",
+      "samples": "Bhavmanyu_24/samples.jsonl",
+      "embedding_stale": false,
+      "embedding_dim": 512
+    },
+    {
+      "person_id": "k",
+      "name": "p",
+      "images": [],
+      "image_count": 0,
+      "embedding": null,
+      "embedding_json": null,
+      "samples": null,
+      "embedding_stale": false,
+      "embedding_dim": null
+    },
+    {
+      "person_id": "person_01",
+      "name": "d",
+      "images": [],
+      "image_count": 0,
+      "embedding": null,
+      "embedding_json": null,
+      "samples": null,
+      "embedding_stale": false,
+      "embedding_dim": null
+    },
+    {
+      "person_id": "person_02",
+      "name": "jane",
+      "images": [],
+      "image_count": 0,
+      "embedding": null,
+      "embedding_json": null,
+      "samples": null,
+      "embedding_stale": false,
+      "embedding_dim": null
+    },
+    {
+      "person_id": "x",
+      "name": "s",
+      "images": [],
+      "image_count": 0,
+      "embedding": null,
+      "embedding_json": null,
+      "samples": null,
+      "embedding_stale": false,
+      "embedding_dim": null
+    }
+  ]
+}

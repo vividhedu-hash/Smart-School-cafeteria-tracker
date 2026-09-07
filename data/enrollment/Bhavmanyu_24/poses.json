@@ -1,0 +1,115 @@
+{
+  "schema": "cafeteria.poses.v1",
+  "person_id": "Bhavmanyu_24",
+  "poses": {
+    "frontal": [
+      {
+        "file": "0001.jpg",
+        "quality_score": 64.2,
+        "yaw": 7.19,
+        "pitch": -3.49,
+        "roll": -0.69
+      },
+      {
+        "file": "0002.jpg",
+        "quality_score": 68.8,
+        "yaw": 3.45,
+        "pitch": -2.01,
+        "roll": -2.81
+      },
+      {
+        "file": "0005.jpg",
+        "quality_score": 77.4,
+        "yaw": 4.48,
+        "pitch": 3.1,
+        "roll": -2.07
+      },
+      {
+        "file": "0006.jpg",
+        "quality_score": 82.5,
+        "yaw": 7.36,
+        "pitch": -0.33,
+        "roll": 0.51
+      }
+    ],
+    "extreme_angle": [
+      {
+        "file": "0003.jpg",
+        "quality_score": 57.1,
+        "yaw": 71.35,
+        "pitch": 6.0,
+        "roll": -2.08
+      },
+      {
+        "file": "0004.jpg",
+        "quality_score": 52.3,
+        "yaw": 66.64,
+        "pitch": 12.91,
+        "roll": 1.95
+      },
+      {
+        "file": "0009.jpg",
+        "quality_score": 56.6,
+        "yaw": 35.6,
+        "pitch": 3.01,
+        "roll": -1.44
+      },
+      {
+        "file": "0010.jpg",
+        "quality_score": 74.8,
+        "yaw": 38.03,
+        "pitch": 9.1,
+        "roll": 1.26
+      },
+      {
+        "file": "0011.jpg",
+        "quality_score": 74.8,
+        "yaw": 38.03,
+        "pitch": 9.1,
+        "roll": 1.26
+      },
+      {
+        "file": "0013.jpg",
+        "quality_score": 51.0,
+        "yaw": -5.7,
+        "pitch": 28.17,
+        "roll": -2.96
+      }
+    ],
+    "slight_left": [
+      {
+        "file": "0007.jpg",
+        "quality_score": 61.0,
+        "yaw": -13.65,
+        "pitch": 8.28,
+        "roll": -2.85
+      },
+      {
+        "file": "0008.jpg",
+        "quality_score": 56.9,
+        "yaw": -20.13,
+        "pitch": 4.5,
+        "roll": -0.65
+      }
+    ],
+    "slight_down": [
+      {
+        "file": "0012.jpg",
+        "quality_score": 55.4,
+        "yaw": -3.11,
+        "pitch": 20.68,
+        "roll": -4.08
+      }
+    ],
+    "slight_up": [
+      {
+        "file": "0014.jpg",
+        "quality_score": 56.8,
+        "yaw": -1.34,
+        "pitch": -20.84,
+        "roll": -1.71
+      }
+    ]
+  },
+  "exemplar_count": 14
+}

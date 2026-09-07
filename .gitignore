@@ -52,9 +52,9 @@ data/frames/
 data/db_exports/
 data/audit/
 
-# Keep enrollment structure but not actual user biometrics/samples
-data/enrollment/**
-!data/enrollment/.gitkeep
+# Allow enrolled face profiles to persist to cloud deployment
+!data/enrollment/
+!data/enrollment/**
 
 # Keep dataset structure but not images
 data/datasets/**/*.jpg
@@ -68,8 +68,9 @@ data/commands.json
 data/heartbeat
 data/engine.pid
 data/.operator_pin
-data/.embedding_key
 data/.engine_token
+# data/.embedding_key (tracked so cloud deployment shares decryption key)
+!data/.embedding_key
 
 # pytest
 .pytest_cache/

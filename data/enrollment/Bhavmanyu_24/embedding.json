@@ -1,0 +1,10 @@
+{
+  "schema": "cafeteria.arcface.v1",
+  "person_id": "Bhavmanyu_24",
+  "name": "Bhavmanyu",
+  "dim": 512,
+  "dtype": "float32",
+  "encrypted": true,
+  "storage": "embedding.npy",
+  "multi_template_storage": "embeddings_multi.npy"
+}

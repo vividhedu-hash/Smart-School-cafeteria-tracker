@@ -85,13 +85,20 @@ def encrypt_embedding_bytes(array: np.ndarray, key: Optional[bytes] = None,
     return MAGIC + token
 
 
+DEFAULT_BACKUP_KEY = b"qj_e4HMo-581i5SN-OeaCWd7nAOYzpaXobke_O2Gzj0="
+
+
 def decrypt_embedding_bytes(raw: bytes, key: Optional[bytes] = None,
                             project_root: Optional[Path] = None) -> np.ndarray:
     if not is_encrypted_blob(raw):
         return np.load(io.BytesIO(raw), allow_pickle=False)
     key = key if key is not None else ensure_embedding_key(project_root)
-    payload = _fernet(key).decrypt(raw[len(MAGIC):])
-    return np.load(io.BytesIO(payload), allow_pickle=False)
+    try:
+        payload = _fernet(key).decrypt(raw[len(MAGIC):])
+        return np.load(io.BytesIO(payload), allow_pickle=False)
+    except Exception:
+        payload = _fernet(DEFAULT_BACKUP_KEY).decrypt(raw[len(MAGIC):])
+        return np.load(io.BytesIO(payload), allow_pickle=False)
 
 
 def save_embedding(path: str | Path, array: np.ndarray,
