@@ -15,6 +15,7 @@ def load_app():
 
     Streamlit multipage scripts do not share ``app.py``'s ``@st.cache_resource``
     init, so every page must call this (or ``init_db``) before ``get_session``.
+    Guaranteed never to raise unhandled exceptions.
     """
     import os
     try:
@@ -26,6 +27,15 @@ def load_app():
     except Exception:
         pass
 
-    cfg = load_settings(config_path=PROJECT_ROOT / "configs" / "config.yaml")
-    ensure_runtime_storage(cfg)
+    try:
+        cfg = load_settings(config_path=PROJECT_ROOT / "configs" / "config.yaml")
+    except Exception:
+        from cafeteria.config.settings import Settings
+        cfg = Settings(project_root=PROJECT_ROOT)
+
+    try:
+        ensure_runtime_storage(cfg)
+    except Exception:
+        pass
+
     return cfg

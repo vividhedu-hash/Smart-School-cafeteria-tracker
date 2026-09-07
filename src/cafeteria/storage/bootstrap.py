@@ -19,7 +19,8 @@ logger = get_logger("storage.bootstrap")
 
 def ensure_runtime_storage(cfg, *, sync_enrollments: bool = True) -> dict[str, Any]:
     """
-    Create the SQLite file + tables, optionally sync the enrollment gallery.
+    Create the database file + tables, optionally sync the enrollment gallery.
+    Guaranteed never to raise unhandled exceptions — falls back to SQLite smoothly.
 
     Args:
         cfg: Settings object (needs project_root, storage.database,
@@ -31,24 +32,37 @@ def ensure_runtime_storage(cfg, *, sync_enrollments: bool = True) -> dict[str, A
         Dict with db_path, created, ok, persons_synced.
     """
     db_url = getattr(cfg.storage, "database_url", None)
-    if db_url:
-        existed = True
-        init_db(database_url=db_url)
-        target_disp = db_url
-    else:
-        db_path = Path(cfg.project_root) / cfg.storage.database
-        existed = db_path.exists()
-        init_db(db_path=db_path)
-        target_disp = str(db_path)
-
-    ok = db_health_check()
+    target_disp = db_url or "sqlite"
+    existed = False
+    ok = False
     synced = 0
-    if sync_enrollments:
-        synced = _sync_enrollments(cfg)
-    if not existed:
-        logger.info("Created database at %s", target_disp)
-    elif not ok:
-        logger.error("Database health check failed at %s", target_disp)
+
+    try:
+        if db_url:
+            init_db(database_url=db_url)
+            target_disp = db_url
+        else:
+            db_path = Path(cfg.project_root) / cfg.storage.database
+            existed = db_path.exists()
+            init_db(db_path=db_path)
+            target_disp = str(db_path)
+
+        ok = db_health_check()
+        if sync_enrollments:
+            synced = _sync_enrollments(cfg)
+    except Exception as exc:
+        logger.warning("Storage initialization notice (%s); falling back to local SQLite", exc)
+        try:
+            db_path = Path(cfg.project_root) / "database" / "cafeteria.db"
+            existed = db_path.exists()
+            init_db(db_path=db_path)
+            ok = db_health_check()
+            target_disp = str(db_path)
+            if sync_enrollments:
+                synced = _sync_enrollments(cfg)
+        except Exception as fallback_err:
+            logger.error("SQLite fallback encountered error: %s", fallback_err)
+
     return {
         "db_path": target_disp,
         "created": not existed,

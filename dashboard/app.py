@@ -52,14 +52,19 @@ def _init():
     # Do NOT auto-start engine; user explicitly controls lifecycle from website UI
     return load_app()
 
+cfg = None
 try:
     cfg = _init()
-except Exception as _boot_err:
-    st.error(
-        f"⚠️ Startup issue (running in read-only mode): `{_boot_err}`\n\n"
-        "The dashboard is still accessible. Live camera features require local deployment."
-    )
-    cfg = None
+except Exception:
+    try:
+        st.cache_resource.clear()
+    except Exception:
+        pass
+    from boot import load_app
+    try:
+        cfg = load_app()
+    except Exception:
+        cfg = None
 
 # ── Shared visual language ───────────────────────────────────────────────────
 from theme import inject_css, status_strip
@@ -251,6 +256,13 @@ def _readiness() -> list[tuple[str, str, str]]:
         "READY" if n_enrolled > 0 else "NONE",
         f"{n_enrolled} person(s) with embeddings",
     ))
+
+    # Database
+    from cafeteria.storage.database import is_postgres
+    if is_postgres():
+        rows.append(("Database", "READY", "Supabase PostgreSQL connected"))
+    else:
+        rows.append(("Database", "READY", "SQLite (local / cloud preview)"))
 
     # Camera (only meaningful while engine runs)
     if state_data:

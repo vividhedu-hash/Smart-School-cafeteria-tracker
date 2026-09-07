@@ -98,3 +98,69 @@ def test_update_status_sets_person_fk(db_session):
     person = PersonRepository(db_session).get_by_person_id("alice_01")
     assert person is not None
     assert refreshed.person_id_fk == person.id
+
+
+def test_supabase_url_normalisation():
+    from cafeteria.storage.database import _normalise_supabase_url, _extract_host_port
+
+    # 1. With standard port
+    u1 = "postgresql://postgres:secret@db.qeanxgkbcljacserkked.supabase.co:5432/postgres"
+    n1 = _normalise_supabase_url(u1)
+    assert "aws-0-ap-south-1.pooler.supabase.com:5432" in n1
+    assert "postgres.qeanxgkbcljacserkked" in n1
+
+    # 2. Without port (common copy-paste)
+    u2 = "postgresql://postgres:secret@db.qeanxgkbcljacserkked.supabase.co/postgres"
+    n2 = _normalise_supabase_url(u2)
+    assert "aws-0-ap-south-1.pooler.supabase.com:5432" in n2
+    assert "postgres.qeanxgkbcljacserkked" in n2
+
+    # 3. With transaction pooler port 6543
+    u3 = "postgresql://postgres.qeanxgkbcljacserkked:secret@db.qeanxgkbcljacserkked.supabase.co:6543/postgres"
+    n3 = _normalise_supabase_url(u3)
+    assert "aws-0-ap-south-1.pooler.supabase.com:6543" in n3
+    assert "postgres.qeanxgkbcljacserkked" in n3
+
+    # 4. Legacy postgres:// scheme without port
+    u4 = "postgres://postgres:secret@db.qeanxgkbcljacserkked.supabase.co/postgres"
+    n4 = _normalise_supabase_url(u4)
+    assert n4.startswith("postgresql://")
+    assert "aws-0-ap-south-1.pooler.supabase.com:5432" in n4
+
+    # 5. Non-supabase URL remains unchanged
+    u5 = "postgresql://myuser:mypass@custom-db.internal:5432/production"
+    assert _normalise_supabase_url(u5) == u5
+
+    # 6. Host and port extraction
+    host, port = _extract_host_port(n1)
+    assert host == "aws-0-ap-south-1.pooler.supabase.com"
+    assert port == 5432
+
+
+def test_ensure_runtime_storage_fallback_on_unreachable_pg(cfg, db):
+    from types import SimpleNamespace
+    from cafeteria.storage.database import init_db
+
+    fake_cfg = SimpleNamespace(
+        project_root=cfg.project_root,
+        storage=SimpleNamespace(
+            database="database/isolated_fallback.db",
+            database_url="postgresql://invalid_user:invalid_pass@192.0.2.1:5432/nonexistent",
+        ),
+        recognition=SimpleNamespace(embedding_dir="data/enrollment"),
+    )
+    try:
+        report = ensure_runtime_storage(fake_cfg, sync_enrollments=False)
+        assert report["ok"] is True
+        assert db_health_check() is True
+    finally:
+        init_db(db)
+
+
+def test_load_app_resilience(tmp_path, monkeypatch):
+    from dashboard.boot import load_app
+    monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@invalid.supabase.co/db")
+    cfg = load_app()
+    assert cfg is not None
+    assert db_health_check() is True
+

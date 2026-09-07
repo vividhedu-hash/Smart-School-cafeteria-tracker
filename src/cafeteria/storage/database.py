@@ -47,21 +47,36 @@ def _apply_pragmas(dbapi_connection, connection_record):
     cursor.close()
 
 
+def _extract_host_port(url: str) -> tuple[Optional[str], int]:
+    """Extract host and port from a database URL safely."""
+    try:
+        from urllib.parse import urlparse
+        parsed = urlparse(url)
+        return parsed.hostname, (parsed.port or 5432)
+    except Exception:
+        return None, 5432
+
+
 def _normalise_supabase_url(url: str) -> str:
     """
     Translate a direct Supabase host to the IPv4 Supavisor pooler.
 
     Cloud runtimes (Streamlit Cloud, AWS Lambda, GitHub Actions) only have
     IPv4 egress, so ``db.<ref>.supabase.co`` (IPv6-only) must become
-    ``aws-0-ap-south-1.pooler.supabase.com:5432`` with the project-ref
+    ``aws-0-<region>.pooler.supabase.com:5432`` with the project-ref
     appended to the user name (``postgres.<ref>``).
     """
     if url.startswith("postgres://"):
         url = "postgresql://" + url[len("postgres://"):]
 
-    m = re.search(r"@db\.([a-z0-9]+)\.supabase\.co:(\d+)", url)
+    m = re.search(r"@db\.([a-z0-9]+)\.supabase\.co(?::(\d+))?", url)
     if m:
-        ref, port = m.group(1), m.group(2)
+        ref = m.group(1)
+        raw_port = m.group(2)
+        region = os.environ.get("SUPABASE_REGION", "ap-south-1").strip()
+        pooler_port = raw_port if raw_port in ("5432", "6543") else "5432"
+        pooler_host = f"aws-0-{region}.pooler.supabase.com:{pooler_port}"
+
         prefix, rest = url.split("://", 1)
         if "@" in rest:
             userpass, hostdb = rest.split("@", 1)
@@ -70,12 +85,10 @@ def _normalise_supabase_url(url: str) -> str:
                 if not user.endswith("." + ref):
                     user = f"{user}.{ref}"
                 userpass = f"{user}:{pwd}"
-            hostdb = hostdb.replace(
-                f"db.{ref}.supabase.co:{port}",
-                "aws-0-ap-south-1.pooler.supabase.com:5432",
-            )
+            old_host = f"db.{ref}.supabase.co:{raw_port}" if raw_port else f"db.{ref}.supabase.co"
+            hostdb = hostdb.replace(old_host, pooler_host)
             url = f"{prefix}://{userpass}@{hostdb}"
-            logger.info("Supabase URL normalised → IPv4 Supavisor pooler")
+            logger.info("Supabase URL normalised → IPv4 Supavisor pooler (%s)", pooler_host)
     return url
 
 
@@ -115,15 +128,30 @@ def _try_postgres_background(url: str) -> None:
     """
     Attempt PostgreSQL connection in a background thread.
     On success, swap the global engine transparently.
+    Guaranteed never to raise unhandled exceptions or crash the app.
     """
     global _engine, _SessionLocal, _pg_connected
     try:
+        import socket
+        host, port = _extract_host_port(url)
+        if host:
+            try:
+                # Pre-check IPv4 DNS resolution so we never hit psycopg2's gai error
+                socket.getaddrinfo(host, port, socket.AF_INET)
+            except Exception as dns_err:
+                logger.warning(
+                    "PostgreSQL host '%s' is not reachable over IPv4 (%s). Staying on SQLite.",
+                    host,
+                    dns_err,
+                )
+                return
+
         pg_eng = create_engine(
             url,
             pool_size=5,
             max_overflow=10,
             pool_pre_ping=True,
-            connect_args={"connect_timeout": 10},
+            connect_args={"connect_timeout": 8},
             echo=False,
         )
         # Real connection test
