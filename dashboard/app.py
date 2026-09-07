@@ -41,6 +41,7 @@ import time
 
 from engine_ctl import (
     engine_is_alive as _engine_is_alive,
+    is_cloud as _is_cloud,
     start_engine as _start_engine,
     stop_engine as _stop_engine,
 )
@@ -76,9 +77,20 @@ with st.sidebar:
     st.markdown("## 🍽️ Cafeteria Tracker")
     st.markdown("---")
 
+    cloud_mode = _is_cloud()
     engine_alive = _engine_is_alive()
     st.markdown("**Engine Controls**")
-    if engine_alive:
+
+    if cloud_mode:
+        st.markdown('<span class="state-badge status-warn">☁️ CLOUD PREVIEW</span>', unsafe_allow_html=True)
+        st.caption(
+            "Dashboard is hosted in cloud mode. Real-time video detection and camera AI run on "
+            "your local machine."
+        )
+        with st.expander("💻 Local Camera Setup", expanded=False):
+            st.code("bash run.sh", language="bash")
+            st.caption("Runs the local real-time inference engine and syncs with this Supabase database.")
+    elif engine_alive:
         st.markdown('<span class="state-badge status-ok">● ENGINE RUNNING</span>', unsafe_allow_html=True)
         st.caption("Camera LED is on. Stop the engine to release it immediately.")
         if st.button("⏹ Stop Engine", type="primary", width="stretch"):
@@ -179,7 +191,15 @@ def _enrolled_count() -> int:
 status_strip(state_data, engine_alive=engine_alive, enrolled=_enrolled_count())
 
 # Engine status banner
-if not engine_alive:
+if cloud_mode:
+    st.info(
+        "☁️ **Cloud Management Dashboard Active**\n\n"
+        "Your database, analytics, review queue, and model roster are fully operational. "
+        "Real-time video inference and webcam tracking run on your physical machine.\n\n"
+        "To start the live camera engine locally: run `bash run.sh` or double-click `Start_Cafeteria_Tracker.command`.",
+        icon="☁️",
+    )
+elif not engine_alive:
     st.info(
         "**The inference engine is currently STOPPED.**\n\n"
         "Click **▶ Start Engine**, then open **Live Monitor** for the live feed. "

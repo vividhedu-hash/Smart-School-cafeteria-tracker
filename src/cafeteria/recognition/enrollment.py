@@ -131,10 +131,13 @@ class EnrollmentManager:
         )
 
     def _write_json(self, path: Path, payload: dict) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(path.suffix + ".tmp")
-        tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-        tmp.replace(path)
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_suffix(path.suffix + ".tmp")
+            tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+            tmp.replace(path)
+        except OSError:
+            pass
 
     # ──────────────────────────────────────────────────────────────────────
     # Image management
@@ -424,7 +427,10 @@ class EnrollmentManager:
 
     def write_gallery_index(self) -> Path:
         """Write data/enrollment/index.json — the ML-readable gallery manifest."""
-        self._root.mkdir(parents=True, exist_ok=True)
+        try:
+            self._root.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            pass
         persons = []
         for pid in self.list_person_dirs():
             meta = self.load_meta(pid) or {}
@@ -441,16 +447,19 @@ class EnrollmentManager:
                 "embedding_dim": meta.get("embedding_dim") or (EMBEDDING_DIM if self.has_embedding(pid) else None),
             })
             if not self.samples_path(pid).exists() and images:
-                with open(self.samples_path(pid), "w", encoding="utf-8") as f:
-                    for img in self.list_images(pid):
-                        pose = img.stem.split("_")[0] if "_" in img.stem else None
-                        f.write(json.dumps({
-                            "file": f"images/{img.name}",
-                            "pose": pose if pose and not pose.isdigit() else None,
-                            "used_in_mean": self.has_embedding(pid),
-                            "det_score": None,
-                        }) + "\n")
-                persons[-1]["samples"] = f"{pid}/samples.jsonl"
+                try:
+                    with open(self.samples_path(pid), "w", encoding="utf-8") as f:
+                        for img in self.list_images(pid):
+                            pose = img.stem.split("_")[0] if "_" in img.stem else None
+                            f.write(json.dumps({
+                                "file": f"images/{img.name}",
+                                "pose": pose if pose and not pose.isdigit() else None,
+                                "used_in_mean": self.has_embedding(pid),
+                                "det_score": None,
+                            }) + "\n")
+                    persons[-1]["samples"] = f"{pid}/samples.jsonl"
+                except OSError:
+                    pass
         payload = {
             "schema": SCHEMA_VERSION,
             "updated_at": time.time(),

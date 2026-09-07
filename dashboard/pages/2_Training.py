@@ -251,9 +251,21 @@ def _rebuild_face_profile(pid: str, pname: str):
 def _decode_upload(data: bytes) -> np.ndarray | None:
     if not data:
         return None
-    buf = np.frombuffer(data, np.uint8)
-    img = cv2.imdecode(buf, cv2.IMREAD_COLOR)
-    return img if img is not None and img.size else None
+    if cv2 is not None:
+        try:
+            buf = np.frombuffer(data, np.uint8)
+            img = cv2.imdecode(buf, cv2.IMREAD_COLOR)
+            if img is not None and img.size:
+                return img
+        except Exception:
+            pass
+    try:
+        import io
+        from PIL import Image
+        pil_img = Image.open(io.BytesIO(data)).convert("RGB")
+        return np.array(pil_img)[:, :, ::-1]  # RGB to BGR
+    except Exception:
+        return None
 
 
 def _add_images_to_waste_class(class_name: str, images: list[bytes]) -> int:

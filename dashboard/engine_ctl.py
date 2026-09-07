@@ -22,13 +22,16 @@ HEARTBEAT_FILE = PROJECT_ROOT / "data" / "heartbeat"
 _PYTHON = PROJECT_ROOT / ".venv" / "bin" / "python"
 
 
-def _is_cloud() -> bool:
+def is_cloud() -> bool:
     """Detect Streamlit Community Cloud runtime (read-only FS, no webcam)."""
     return (
         os.environ.get("HOME", "") == "/home/adminuser"
         or Path("/mount/src").exists()
         or os.environ.get("STREAMLIT_SHARING_MODE") == "true"
     )
+
+
+_is_cloud = is_cloud
 
 
 def write_heartbeat() -> None:

@@ -35,7 +35,7 @@ require_login()
 
 from boot import load_app
 from cafeteria.recognition.live_match import face_match_as_dict
-from engine_ctl import write_heartbeat, engine_is_alive, start_engine, stop_engine
+from engine_ctl import write_heartbeat, engine_is_alive, is_cloud, start_engine, stop_engine
 from engine_client import fetch_state, fetch_frame_bytes
 from theme import inject_css, status_strip
 
@@ -255,6 +255,20 @@ def live_view() -> None:
     # [AI-CoLab: Verified by Antigravity] Fragment-based self-refreshing live view preventing full page rerenders
     write_heartbeat()
 
+    if is_cloud():
+        st.session_state.pop("engine_started_at", None)
+        status_strip({}, engine_alive=False)
+        st.info(
+            "☁️ **Live Camera requires local hardware**\n\n"
+            "This Streamlit dashboard is running on a cloud server without an attached webcam. "
+            "To stream real-time video and run face recognition live on camera:\n\n"
+            "1. Run the local launcher on your workstation: `bash run.sh`\n"
+            "2. Or double-click `Start_Cafeteria_Tracker.command`.\n"
+            "3. Events, transactions, and detections will sync in real time with this dashboard.",
+            icon="📹",
+        )
+        return
+
     if not engine_is_alive():
         st.session_state.pop("engine_started_at", None)
         status_strip({}, engine_alive=False)
@@ -330,7 +344,13 @@ def live_view() -> None:
 
 with st.sidebar:
     st.markdown("### Camera")
-    if engine_is_alive():
+    if is_cloud():
+        st.markdown(
+            '<span class="state-badge status-warn">☁️ CLOUD PREVIEW</span>',
+            unsafe_allow_html=True,
+        )
+        st.caption("Live video stream runs on your local workstation where physical cameras are connected.")
+    elif engine_is_alive():
         st.markdown(
             '<span class="state-badge status-ok">● ENGINE RUNNING</span>',
             unsafe_allow_html=True,
