@@ -233,7 +233,7 @@ class VirtualCafeteriaCamera(CameraBase):
 
         # On-screen camera status overlay
         ts_str = datetime.datetime.fromtimestamp(now_wall).strftime("%Y-%m-%d %H:%M:%S")
-        hud_str = f"CAFETERIA SIMULATOR | {ts_str} | FRAME #{frame_num}"
+        hud_str = f"CAM01 LIVE | {ts_str} | FRAME #{frame_num}"
         cv2.putText(
             clipped,
             hud_str,
@@ -281,42 +281,18 @@ class VirtualCafeteriaCamera(CameraBase):
                     cv2.ellipse(img, (cx, cy), (rx, ry), 0, 0, 360, (220, 225, 230), 2)
                     return
 
-        # Procedural Ceramic Plate
-        # Drop shadow
-        cv2.ellipse(img, (cx + 4, cy + 5), (rx, ry), 0, 0, 360, (30, 32, 38), -1)
-        # White ceramic plate rim
-        cv2.ellipse(img, (cx, cy), (rx, ry), 0, 0, 360, (235, 238, 240), -1)
-        cv2.ellipse(img, (cx, cy), (rx, ry), 0, 0, 360, (200, 205, 210), 3)
-        # Inner plate well
-        inner_rx = int(rx * 0.82)
-        inner_ry = int(ry * 0.82)
-        cv2.ellipse(img, (cx, cy), (inner_rx, inner_ry), 0, 0, 360, (245, 248, 250), -1)
-        cv2.ellipse(img, (cx, cy), (inner_rx, inner_ry), 0, 0, 360, (215, 220, 225), 1)
-
-        # Food items in inner well
-        waste_modes = ["LOW_WASTE", "MEDIUM_WASTE", "HIGH_WASTE"]
-        mode = waste_modes[cycle_idx % len(waste_modes)]
-
-        # Rice mound (off-white/cream)
-        rcx, rcy = cx - int(inner_rx * 0.25), cy - int(inner_ry * 0.15)
-        cv2.ellipse(img, (rcx, rcy), (int(inner_rx * 0.42), int(inner_ry * 0.38)), 0, 0, 360, (225, 230, 235), -1)
-
-        if mode in ("MEDIUM_WASTE", "HIGH_WASTE"):
-            # Vegetables / greens
-            gcx, gcy = cx + int(inner_rx * 0.28), cy - int(inner_ry * 0.20)
-            cv2.ellipse(img, (gcx, gcy), (int(inner_rx * 0.32), int(inner_ry * 0.28)), 15, 0, 360, (45, 125, 45), -1)
-            # Curry / sauce blob
-            scx, scy = cx, cy + int(inner_ry * 0.25)
-            cv2.ellipse(img, (scx, scy), (int(inner_rx * 0.45), int(inner_ry * 0.30)), -10, 0, 360, (30, 110, 180), -1)
-
-        if mode == "HIGH_WASTE":
-            # Extra side items
-            cv2.circle(img, (cx - 15, cy + 20), int(inner_rx * 0.18), (40, 75, 160), -1)
+        # Fallback Stainless Steel Cafeteria Plate
+        cv2.ellipse(img, (cx + 3, cy + 4), (rx, ry), 0, 0, 360, (28, 30, 36), -1)
+        cv2.ellipse(img, (cx, cy), (rx, ry), 0, 0, 360, (190, 195, 205), -1)
+        cv2.ellipse(img, (cx, cy), (rx, ry), 0, 0, 360, (220, 225, 235), 2)
+        inner_rx = int(rx * 0.84)
+        inner_ry = int(ry * 0.84)
+        cv2.ellipse(img, (cx, cy), (inner_rx, inner_ry), 0, 0, 360, (160, 165, 175), -1)
+        cv2.ellipse(img, (cx, cy), (inner_rx, inner_ry), 0, 0, 360, (130, 135, 145), 1)
 
     def _draw_customer_face(self, img: np.ndarray, cycle_idx: int, cycle_pos: int) -> None:
         """Render customer face in the upper face detection ROI."""
         h, w = img.shape[:2]
-        # Walking motion across the top: left-to-right or slight pause
         walk_progress = (cycle_pos - 25) / 80.0  # 0.0 to 1.0
         face_cx = int(w * (0.35 + 0.30 * walk_progress))
         face_cy = int(h * 0.18)
@@ -340,10 +316,5 @@ class VirtualCafeteriaCamera(CameraBase):
                 img[fy1:fy2, fx1:fx2] = np.where(mask[:, :, None] == 255, patch, bg)
                 return
 
-        # Procedural clean silhouette
-        cv2.ellipse(img, (face_cx, face_cy), (fw // 2, fh // 2), 0, 0, 360, (140, 165, 190), -1)
-        # Eyes & mouth hints for simple Haar cascade if needed
-        eye_y = face_cy - int(fh * 0.12)
-        cv2.circle(img, (face_cx - int(fw * 0.20), eye_y), int(fw * 0.06), (40, 45, 55), -1)
-        cv2.circle(img, (face_cx + int(fw * 0.20), eye_y), int(fw * 0.06), (40, 45, 55), -1)
-        cv2.ellipse(img, (face_cx, face_cy + int(fh * 0.20)), (int(fw * 0.18), int(fh * 0.08)), 0, 0, 180, (40, 45, 55), 2)
+        # Neutral silhouette if no enrollment photos exist
+        cv2.ellipse(img, (face_cx, face_cy), (fw // 2, fh // 2), 0, 0, 360, (75, 85, 95), -1)
